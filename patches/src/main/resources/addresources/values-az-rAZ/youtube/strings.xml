@@ -193,7 +193,6 @@ Dəyişikliklər ehtiva edir:
   <string name="morphe_hide_how_this_was_made_section_title">\"Bu necə hazırlanıb\" bölməsini gizlət</string>
   <string name="morphe_hide_hype_points_title">Dəstək xalların gizlət</string>
   <string name="morphe_hide_info_cards_section_title">Məlumat kartları bölməsini gizlət</string>
-  <string name="morphe_hide_key_concepts_section_title">\'Əsas konseptlər\' bölməsini gizlət</string>
   <string name="morphe_hide_quizzes_section_title">Testlər bölməsini gizlət</string>
   <string name="morphe_hide_search_inside_this_video_section_title">\'Bu videoda axtarın\' bölməsini gizlət</string>
   <string name="morphe_hide_subscribe_button_title">Abunə ol düyməsini gizlət</string>
@@ -1310,8 +1309,21 @@ Məhdudiyyətlər:
 • Ekran faktiki olaraq HDR göstərə bilmirsə, rənglər problemli görünə bilər
 • Dekoder HDR-i emal edə bilməsə, oynatma uğursuz ola bilər
 • HDR hələ də video yayımları saxtalaşdır qəbuledicisindən asılıdır"</string>
-  <string name="morphe_video_codec_entry_default">Varsayılan</string>
+  <string name="morphe_video_codec_title">Video kodlayıcı</string>
+  <string name="morphe_video_codec_entry_default">İlkin</string>
   <!-- 'Spoof video streams' should be the same translation used for 'morphe_spoof_video_streams_screen_title'. -->
+  <string name="morphe_video_codec_avc_not_available">AVC-yə məcbur etmək üçün \'Video yayımlarını saxtalaşdırı\' \'Android Studio\', \'Android VR\' və ya \'visionOS\' olaraq dəyiş</string>
+  <string name="morphe_video_codec_user_dialog_message">"VP9
+• Batareya ömrünü yaxşılaşdıra və oynatma donmalarını düzəldə bilər
+• AV1-dən daha çox internet datası istifadə edir
+
+​AVC (H.264)
+• 'Android Studio', 'Android VR' və ya 'visionOS' video yayımı qəbuledicisinin saxtalaşdırılmasını tələb edir
+• Batareya ömrünü daha da yaxşılaşdıra bilər
+• Daha köhnə cihazlarda çatışmayan video görüntü imkanlarını bərpa edə bilər
+• Ən yüksək görüntü imkanı 1080p-dir
+• HDR videolar AVC istifadə etməyə bilər
+• Bəzi cihazlar AVC-yə məcbur edilə bilməz"</string>
   <!-- video.quality.advancedVideoQualityMenuPatch -->
   <string name="morphe_advanced_video_quality_menu_title">Təkmil keyfiyyət menyusunu aç</string>
   <string name="morphe_advanced_video_quality_menu_summary">Keyfiyyət seçimi menyusunu ötürür və birbaşa Təkmil keyfiyyət menyusunu açır</string>
@@ -1328,6 +1340,7 @@ Məhdudiyyətlər:
 
 Video oynatma AV1 ilə ilişə bilər və ya kadrlar buraxıla bilər."</string>
   <string name="morphe_spoof_video_streams_about_title">Saxtakarlıq yan təsirləri</string>
+  <string name="morphe_spoof_video_streams_about_failure">• Oynatma 1 dəqiqədən sonra uğursuz ola bilər</string>
   <string name="morphe_spoof_video_streams_about_no_audio_tracks">• \'Audio Trek\' menyusu çatışmır</string>
   <string name="morphe_spoof_video_streams_about_no_av1">• AV1 video kodlayıcı yoxdur</string>
   <string name="morphe_spoof_video_streams_about_no_immersive_mode">• 360° VR geniş rejimi əlçatan deyil</string>
@@ -1354,4 +1367,18 @@ Məhdudiyyət: Köhnə üslub üçün \"Daha çox video\" örtüyünə qayıdır
   <string name="morphe_player_icon_style_entry_bold">Qalın</string>
   <string name="morphe_player_icon_style_entry_custom">Fərdi</string>
   <string name="morphe_shorts_icon_style_title">Shorts simvol üslubu</string>
+  <!-- video.series.seriesTrackerPatch -->
+  <string name="morphe_series_tracker_ui_cancel">Ləğv et</string>
+  <string name="morphe_series_tracker_ui_save">Yadda saxla</string>
+  <string name="morphe_series_tracker_ui_rename">Təkrar adlandır</string>
+  <string name="morphe_series_tracker_ui_history">Tarixçə</string>
+  <string name="morphe_series_tracker_ui_subscriptions">Abunəliklər</string>
+  <string name="morphe_series_tracker_ui_notifications">Bildirişlər</string>
+  <string name="morphe_series_tracker_plan_caught_up">Yenilənib</string>
+  <string name="morphe_series_tracker_continue">Davam et</string>
+  <string name="morphe_series_tracker_undo">Geri qaytar</string>
+  <string name="morphe_series_tracker_enable_short">Aktivləşdir</string>
+  <string name="morphe_series_tracker_view_count">%1$s baxış</string>
+  <string name="morphe_series_tracker_view_count_one">%1$s baxış</string>
+  <string name="morphe_series_tracker_completion_save">Yadda saxla</string>
 </resources>
