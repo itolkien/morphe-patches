@@ -151,15 +151,19 @@ final class EdgeTtsVoiceRepository {
             VoiceCatalog.ChangeSummary changes = VoiceCatalog.compare(previous, downloaded);
             String comparison = status.source == Source.FALLBACK ? "FALLBACK" : "PREVIOUS";
 
-            // Commit the new state only after the complete response has been validated.
+            // Publish only after receiving and validating the complete response.
+            long updatedAt = System.currentTimeMillis();
             VoiceCatalog.setAvailableVoices(downloaded);
-            prefs.edit().putString(KEY_CATALOG, response).putLong(KEY_FETCHED_AT, now).apply();
+            prefs.edit().putString(KEY_CATALOG, response)
+                    .putLong(KEY_FETCHED_AT, updatedAt).apply();
             status = new Status(Source.ONLINE, downloaded.size(), changes.added,
-                    changes.removed, comparison, now, true, null);
+                    changes.removed, comparison, updatedAt, true, null);
             logStatus("HTTP 200", status);
         } catch (Exception error) {
             // Retain the last-good snapshot, including the bundled fallback.
-            status = status.withError(error.getMessage());
+            String message = error.getMessage() != null
+                    ? error.getMessage() : error.getClass().getSimpleName();
+            status = status.withError(message);
             logStatus("refresh failed", status);
         } finally {
             status = status.withRefreshing(false);
@@ -208,16 +212,16 @@ final class EdgeTtsVoiceRepository {
     }
 
     private static String download() throws IOException {
-        String token = EdgeTtsV2Token.TRUSTED_CLIENT_TOKEN;
+        String token = EdgeTtsConfig.TRUSTED_CLIENT_TOKEN;
         String query = "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/"
                 + "voices/list?trustedclienttoken=" + token
                 + "&Sec-MS-GEC=" + EdgeTtsV2Token.generate(System.currentTimeMillis(), token)
-                + "&Sec-MS-GEC-Version=" + EdgeTtsV2Token.SEC_MS_GEC_VERSION;
+                + "&Sec-MS-GEC-Version=" + EdgeTtsConfig.SEC_MS_GEC_VERSION;
 
         HttpURLConnection conn = (HttpURLConnection) new URL(query).openConnection();
         conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
         conn.setReadTimeout(READ_TIMEOUT_MS);
-        conn.setRequestProperty("User-Agent", EdgeTtsV2Token.USER_AGENT);
+        conn.setRequestProperty("User-Agent", EdgeTtsConfig.USER_AGENT);
         conn.setRequestProperty("Accept", "*/*");
         conn.setRequestProperty("Sec-CH-UA",
                 "\" Not;A Brand\";v=\"99\", \"Microsoft Edge\";v=\"143\", \"Chromium\";v=\"143\"");
