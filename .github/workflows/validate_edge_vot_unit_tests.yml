@@ -1,0 +1,24 @@
+name: Validate Edge VOT unit tests
+
+on:
+  push:
+    branches:
+      - ci/edge-vot-unit-validation
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Cache Gradle
+        uses: burrunan/gradle-cache-action@v3
+      - name: Run VOT unit tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./gradlew :extensions:youtube:testDebugUnitTest --no-daemon

@@ -1,6 +1,7 @@
 # Dependencies must also be addded to LicensesDialog.java
 
 [versions]
+junit = "4.13.2"
 morphe-patcher = "1.15.1"
 morphe-patches-library = "1.9.0-dev.9"
 # Tracking https://github.com/google/smali/issues/100.
@@ -18,6 +19,7 @@ protobuf = "0.10.0"
 protoc = "4.36.2"
 
 [libraries]
+junit = { module = "junit:junit", version.ref = "junit" }
 morphe-patches-library = { module = "app.morphe:morphe-patches-library", version.ref = "morphe-patches-library" }
 morphe-extensions-library = { module = "app.morphe:morphe-extensions-library", version.ref = "morphe-patches-library" }
 annotation = { module = "androidx.annotation:annotation", version.ref = "annotation" }
