@@ -239,10 +239,7 @@ public class VoiceOverTranslationPatch {
         if (!Settings.VOT_ENABLED.get() || !sessionEnabled) return;
         if (PlayerType.getCurrent() == PlayerType.INLINE_MINIMAL) return;
         if (!Settings.VOT_USE_NATIVE_TTS.get()) {
-            final boolean catalogMissing = VoiceCatalog.resolve(resolveTargetLang(), null) == null;
-            EdgeTtsVoiceRepository.load(Utils.getContext(), () -> {
-                if (catalogMissing && videoId.equals(currentVideoId)) onVoiceCatalogLoaded();
-            });
+            EdgeTtsVoiceRepository.load(Utils.getContext(), null);
         }
         TTSPrefetcher.updateVideo(videoId, segments);
         loadTranscript(videoId);
@@ -476,17 +473,6 @@ public class VoiceOverTranslationPatch {
         Utils.verifyOnMainThread();
         for (Runnable callback : stateChangeCallbacks) {
             callback.run();
-        }
-    }
-
-    /** Re-evaluate the current segment when the first online catalog arrives. */
-    static void onVoiceCatalogLoaded() {
-        if (Settings.VOT_USE_NATIVE_TTS.get()
-                || VoiceCatalog.resolve(resolveTargetLang(), null) == null) return;
-        lastSpokenIndex = -1;
-        TTSPrefetcher.triggerRescan();
-        if (VideoState.getCurrent() == VideoState.PLAYING) {
-            videoTimeChanged(VideoInformation.getVideoTime());
         }
     }
 

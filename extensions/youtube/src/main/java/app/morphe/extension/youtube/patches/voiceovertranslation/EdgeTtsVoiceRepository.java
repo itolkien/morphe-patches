@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import app.morphe.extension.shared.Logger;
 import app.morphe.extension.shared.Utils;
@@ -36,71 +38,79 @@ final class EdgeTtsVoiceRepository {
     private static final int MAX_RESPONSE_LENGTH = 2_000_000;
     private static final int MIN_VALID_VOICES = 100;
 
+    private static final long RETRY_DELAY_MS = 30L * 60 * 1_000;
     private static final Object LOCK = new Object();
+    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "morphe-edge-voices");
+        thread.setDaemon(true);
+        return thread;
+    });
     private static final List<Runnable> callbacks = new ArrayList<>();
+    private static boolean loading;
+    // Only the dedicated executor accesses these fields.
     private static boolean cacheLoaded;
-    private static boolean fetching;
+    private static long lastAttemptMs;
 
     private EdgeTtsVoiceRepository() {}
 
+    /** The bundled voices stay usable while the cache or network list is loaded. */
     static void load(Context context, Runnable onUpdate) {
-        update(context, false, onUpdate);
-    }
-
-    static void refresh(Context context, Runnable onUpdate) {
-        update(context, true, onUpdate);
-    }
-
-    private static void update(Context context, boolean force, Runnable onUpdate) {
-        Context app = context.getApplicationContext();
-        SharedPreferences prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (context == null) return;
         synchronized (LOCK) {
+            if (onUpdate != null) callbacks.add(onUpdate);
+            if (loading) return;
+            loading = true;
+        }
+        Context appContext = context.getApplicationContext();
+        EXECUTOR.execute(() -> loadAndRefresh(appContext));
+    }
+
+    private static void loadAndRefresh(Context context) {
+        boolean updated = false;
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             if (!cacheLoaded) {
                 cacheLoaded = true;
-                String saved = prefs.getString(KEY_CATALOG, null);
-                if (saved != null) {
+                String cached = prefs.getString(KEY_CATALOG, null);
+                if (cached != null) {
                     try {
-                        VoiceCatalog.setAvailableVoices(parse(saved));
+                        VoiceCatalog.setAvailableVoices(parse(cached));
+                        updated = true;
                     } catch (Exception ex) {
-                        Logger.printDebug(() -> "Invalid saved voice catalog: " + ex);
+                        prefs.edit().remove(KEY_CATALOG).remove(KEY_FETCHED_AT).apply();
+                        Logger.printDebug(() -> "Ignoring invalid Edge voice cache: " + ex);
                     }
                 }
             }
-            if (fetching) {
-                if (onUpdate != null) callbacks.add(onUpdate);
-                return;
-            }
-            long cachedAt = prefs.getLong(KEY_FETCHED_AT, 0);
+
             long now = System.currentTimeMillis();
-            if (!force && cachedAt > 0 && now >= cachedAt && now - cachedAt < CACHE_TTL_MS
-                    && VoiceCatalog.resolve("en", null) != null) {
-                if (onUpdate != null) Utils.runOnMainThread(onUpdate);
-                return;
+            long savedAt = prefs.getLong(KEY_FETCHED_AT, 0);
+            if (savedAt > 0 && now >= savedAt && now - savedAt < CACHE_TTL_MS) return;
+            if (lastAttemptMs > 0 && now >= lastAttemptMs
+                    && now - lastAttemptMs < RETRY_DELAY_MS) return;
+
+            lastAttemptMs = now;
+            String json = download();
+            VoiceCatalog.setAvailableVoices(parse(json));
+            updated = true;
+            prefs.edit().putString(KEY_CATALOG, json)
+                    .putLong(KEY_FETCHED_AT, System.currentTimeMillis()).apply();
+        } catch (Exception ex) {
+            // Keep either the previously cached snapshot or the bundled voices.
+            Logger.printDebug(() -> "Edge voice catalog download failed: " + ex);
+        } finally {
+            List<Runnable> done;
+            synchronized (LOCK) {
+                loading = false;
+                done = new ArrayList<>(callbacks);
+                callbacks.clear();
             }
-            fetching = true;
-            if (onUpdate != null) callbacks.add(onUpdate);
-        }
-        Utils.runOnBackgroundThread(() -> {
-            try {
-                String json = download();
-                List<VoiceCatalog.Voice> voices = parse(json);
-                VoiceCatalog.setAvailableVoices(voices);
-                prefs.edit().putString(KEY_CATALOG, json)
-                        .putLong(KEY_FETCHED_AT, System.currentTimeMillis()).apply();
-            } catch (Exception ex) {
-                Logger.printDebug(() -> "Edge voice catalog download failed: " + ex);
-            } finally {
-                List<Runnable> done;
-                synchronized (LOCK) {
-                    fetching = false;
-                    done = new ArrayList<>(callbacks);
-                    callbacks.clear();
-                }
-                if (!done.isEmpty()) Utils.runOnMainThread(() -> {
+            if (updated && !done.isEmpty()) {
+                Utils.runOnMainThread(() -> {
                     for (Runnable callback : done) callback.run();
                 });
             }
-        });
+        }
     }
 
     private static String download() throws IOException {
@@ -158,6 +168,7 @@ final class EdgeTtsVoiceRepository {
             String locale = row.optString("Locale", "");
             String gender = row.optString("Gender", "");
             if (id.length() < 8 || id.length() > 100 || locale.isEmpty()
+                    || id.indexOf('-', id.indexOf('-') + 1) < 0
                     || !id.startsWith(locale + "-") || !id.matches("[A-Za-z0-9-]+")) {
                 continue;
             }

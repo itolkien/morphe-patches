@@ -521,8 +521,6 @@ Tap here to open OpenRouter.ai"</string>
     <string name="morphe_vot_cost_per_hour">%s per 100 video hours</string>
     <string name="morphe_vot_tts_voice_type">Voice</string>
     <string name="morphe_vot_tts_system">System</string>
-    <string name="morphe_vot_catalog_refresh">Refresh voice list</string>
-    <string name="morphe_vot_catalog_unavailable">Voice list unavailable. Check your connection and retry.</string>
     <string name="morphe_vot_voice_gender_male_multilingual">Multilingual male</string>
     <string name="morphe_vot_voice_gender_female_multilingual">Multilingual female</string>
     <string name="morphe_vot_voice_gender_male">Male</string>

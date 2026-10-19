@@ -102,10 +102,9 @@ public final class VOTBottomSheet {
         final SheetBottomDialog.SlideDialog[] mainRef = {null};
 
         LinearLayout engineRow = makeValueRow(context, fg, str("morphe_vot_tts_voice_type"));
-        Runnable refreshEngine = () -> refreshEngineRow(engineRow);
         engineRow.setOnClickListener(v -> showEnginePicker(context, mainRef[0]));
-        EdgeTtsVoiceRepository.load(context, refreshEngine);
-        refreshEngine.run();
+        EdgeTtsVoiceRepository.load(context, null);
+        refreshEngineRow(engineRow);
 
         LinearLayout translationRow = makeValueRow(context, fg, str("morphe_vot_translation_service_title"));
         Runnable refreshTranslation = () -> ((TextView) translationRow.getTag())
@@ -209,7 +208,7 @@ public final class VOTBottomSheet {
             String defaultVoiceId = VoiceCatalog.resolve(lang, null);
             VoiceCatalog.Voice defaultVoice = VoiceCatalog.getVoice(defaultVoiceId);
             valueView.setText(defaultVoice != null ? defaultVoice.dialogDisplayName
-                    : str("morphe_vot_catalog_unavailable"));
+                    : str("morphe_vot_tts_system"));
         }
 
     }
@@ -322,34 +321,21 @@ public final class VOTBottomSheet {
 
         int speakerRes = Utils.appIsUsingBoldIcons() ? DRAWABLE_SPEAKER_BOLD : DRAWABLE_SPEAKER;
         final int rippleColor = Color.argb(60, Color.red(fg), Color.green(fg), Color.blue(fg));
-        final boolean[] wasEmpty = {VoiceCatalog.resolve(lang, null) == null};
-        Runnable render = () -> {
-            boolean available = VoiceCatalog.resolve(lang, null) != null;
-            if (wasEmpty[0] && available) VoiceOverTranslationPatch.onVoiceCatalogLoaded();
-            wasEmpty[0] = !available;
-            int scrollY = scroll.getScrollY();
-            populateVoiceRows(context, listLayout, pickerDialog, lang, fg, rippleColor, speakerRes);
-            scroll.post(() -> scroll.scrollTo(0, scrollY));
-        };
-        render.run();
-
-        TextView refresh = new TextView(context);
-        refresh.setText(str("morphe_vot_catalog_refresh"));
-        refresh.setTextSize(14);
-        refresh.setTextColor(fg);
-        refresh.setGravity(Gravity.CENTER);
-        refresh.setPadding(Dim.dp16, Dim.dp8, Dim.dp16, Dim.dp8);
-        refresh.setOnClickListener(v -> EdgeTtsVoiceRepository.refresh(context, () -> {
-            if (pickerDialog.isShowing()) render.run();
-        }));
-        pickerRoot.addView(refresh);
+        populateVoiceRows(context, listLayout, pickerDialog, lang, fg, rippleColor, speakerRes);
         pickerRoot.addView(scroll);
         mainDialog.dismiss();
         pickerDialog.setOnCancelListener(d -> VOTBottomSheet.show(context));
         PipDismissHelper.dismissOnPip(pickerDialog);
         pickerDialog.show();
+
         EdgeTtsVoiceRepository.load(context, () -> {
-            if (pickerDialog.isShowing()) render.run();
+            if (!pickerDialog.isShowing()
+                    || !lang.equals(VoiceCatalog.getIso639(VoiceOverTranslationPatch.resolveTargetLang()))) {
+                return;
+            }
+            int scrollY = scroll.getScrollY();
+            populateVoiceRows(context, listLayout, pickerDialog, lang, fg, rippleColor, speakerRes);
+            scroll.post(() -> scroll.scrollTo(0, scrollY));
         });
     }
 
@@ -422,13 +408,7 @@ public final class VOTBottomSheet {
             }
         }
 
-        if (VoiceCatalog.getVoicesForLang(lang) == null) {
-            TextView hint = new TextView(context);
-            hint.setText(str("morphe_vot_catalog_unavailable"));
-            hint.setTextColor(fg);
-            hint.setPadding(Dim.dp16, Dim.dp16, Dim.dp16, Dim.dp16);
-            listLayout.addView(hint);
-        }
+
     }
 
     private static void addVoiceRow(Context context, LinearLayout listLayout,

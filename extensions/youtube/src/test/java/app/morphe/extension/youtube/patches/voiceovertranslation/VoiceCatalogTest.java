@@ -15,16 +15,16 @@ import static org.junit.Assert.*;
 
 public class VoiceCatalogTest {
     @After
-    public void clearCatalog() {
-        VoiceCatalog.setAvailableVoices(Collections.emptyList());
+    public void restoreBundledCatalog() {
+        VoiceCatalog.useBundledVoices();
     }
 
     @Test
-    public void emptyCatalogHasNoBuiltInVoices() {
-        VoiceCatalog.setAvailableVoices(Collections.emptyList());
-        assertNull(VoiceCatalog.getVoice("tr-TR-EmelNeural"));
-        assertNull(VoiceCatalog.getVoicesForLang("tr-TR"));
-        assertNull(VoiceCatalog.resolve("tr-TR", null));
+    public void bundledCatalogWorksBeforeNetworkDownload() {
+        VoiceCatalog.useBundledVoices();
+        assertNotNull(VoiceCatalog.getVoice("tr-TR-EmelNeural"));
+        assertNotNull(VoiceCatalog.getVoice("tr-TR-AhmetNeural"));
+        assertNotNull(VoiceCatalog.resolve("tr-TR", null));
     }
 
     @Test
@@ -68,4 +68,21 @@ public class VoiceCatalogTest {
         assertNull(VoiceCatalog.getVoice("tr-TR-EmelNeural"));
         assertEquals("en-US-EmmaMultilingualNeural", VoiceCatalog.resolve("tr-TR", null));
     }
+    @Test
+    public void networkOrderDoesNotChangeEstablishedDefaults() {
+        VoiceCatalog.setAvailableVoices(Arrays.asList(
+                new VoiceCatalog.Voice(false, "tr-TR-EmelNeural"),
+                new VoiceCatalog.Voice(true, "tr-TR-AhmetNeural")));
+        assertEquals("tr-TR-AhmetNeural", VoiceCatalog.resolve("tr-TR", null));
+        assertEquals("tr-TR-EmelNeural", VoiceCatalog.resolve("tr-TR", "tr-TR-EmelNeural"));
+    }
+
+    @Test
+    public void emptyUpdateNeverDiscardsWorkingVoices() {
+        VoiceCatalog.useBundledVoices();
+        assertThrows(IllegalArgumentException.class,
+                () -> VoiceCatalog.setAvailableVoices(Collections.emptyList()));
+        assertNotNull(VoiceCatalog.getVoice("tr-TR-EmelNeural"));
+    }
+
 }
