@@ -703,13 +703,17 @@ public class VoiceOverTranslationPatch {
                         && voice.equals(resolveVoice(resolveTargetLang()))
                         && VideoState.getCurrent() == VideoState.PLAYING) {
                     final long nowMs = VideoInformation.getVideoTime();
-                    final long audioMs = TTSEngine.mp3DurationMs(finalData.length);
-                    // Skip the audio already overtaken by video while synthesis was pending.
-                    final long seekMs = Math.min(audioMs, startTimeMsSnapshot
-                            + (long) (Math.max(0, nowMs - speakFromMs) * rate));
-                    if (nowMs >= seg.playbackStartMs && nowMs < seg.playbackEndMs && seekMs < audioMs) {
-                        final float playbackRateNow = rate * VideoInformation.getPlaybackSpeed();
-                        ttsEngine.play(finalData, volume, playbackRateNow, seekMs, playbackId,
+                    if (nowMs >= seg.playbackStartMs && nowMs < seg.playbackEndMs) {
+                        final long remainingAudioMs = Math.max(0,
+                                TTSEngine.mp3DurationMs(finalData.length) - startTimeMsSnapshot);
+                        // Recalculate after synthesis; speed up instead of skipping words.
+                        final float playbackRate = calculateSpeechRate(remainingAudioMs,
+                                seg.playbackEndMs - nowMs);
+                        currentTtsBaseRate = playbackRate;
+                        lastAppliedPlaybackSpeed = VideoInformation.getPlaybackSpeed();
+                        ttsEndVideoTimeMs = nowMs + (long) (remainingAudioMs / playbackRate);
+                        ttsEngine.play(finalData, volume,
+                                playbackRate * lastAppliedPlaybackSpeed, startTimeMsSnapshot, playbackId,
                                 VoiceOverTranslationPatch::triggerNextSegmentCheck);
                         return;
                     }
