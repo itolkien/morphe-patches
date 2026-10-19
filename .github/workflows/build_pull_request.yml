@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - dev
+      - ci/edge-tts-minimal-safe-prefetch-test
   pull_request:
     branches:
       - dev
