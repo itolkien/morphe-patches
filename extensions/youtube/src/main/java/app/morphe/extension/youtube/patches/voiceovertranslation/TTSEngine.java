@@ -93,8 +93,8 @@ final class TTSEngine {
     private final Object synthesisLock = new Object();
     @GuardedBy("synthesisLock")
     private long lastSynthesisEndMs;
-    @GuardedBy("synthesisLock")
-    private SSLSocket persistentSocket;
+    // Written under synthesisLock; also read by stop() to cancel an active request.
+    private volatile SSLSocket persistentSocket;
     @GuardedBy("synthesisLock")
     private InputStream persistentIn;
     @GuardedBy("synthesisLock")
@@ -103,6 +103,7 @@ final class TTSEngine {
     private boolean configSent;
     @GuardedBy("synthesisLock")
     private String socketVoice;
+    private volatile long synthesisVersion;
 
     private TTSEngine() {}
 
@@ -122,6 +123,7 @@ final class TTSEngine {
         Utils.runOnBackgroundThread(() -> {
             try {
                 byte[] data = prefetch(text, voiceId, lang);
+                if (data.length > 0) TTSCache.putTestSampleToDisk(voiceId, lang, data);
                 Utils.runOnMainThread(() -> {
                     if (data.length > 0 && !stopped && id == playbackId) {
                         play(data, volume, VideoInformation.getPlaybackSpeed(), 0, id, onDone);
@@ -313,6 +315,11 @@ final class TTSEngine {
         }
         stopped = true;
         speaking = false;
+        synthesisVersion++;
+        SSLSocket active = persistentSocket;
+        if (active != null) Utils.runOnBackgroundThread(() -> {
+            try { active.close(); } catch (IOException ignored) {}
+        });
 
         // Unblock latch.await() in playMp3() so the thread exits quickly.
         if (playLatch != null) {
@@ -472,9 +479,11 @@ final class TTSEngine {
 
     private byte[] synthesizeEdge(String text, String voice, String lang) throws Exception {
         Utils.verifyOffMainThread();
+        final long version = synthesisVersion;
         synchronized (synthesisLock) {
             IOException lastEx = null;
             for (int attempt = 1; attempt <= 2; attempt++) {
+                if (version != synthesisVersion) return new byte[0];
                 String stage = "connect";
                 long startedAt = System.currentTimeMillis();
                 try {
@@ -487,6 +496,10 @@ final class TTSEngine {
                         closeSocket();
                     }
                     ensureConnected();
+                    if (version != synthesisVersion) {
+                        closeSocket();
+                        return new byte[0];
+                    }
                     socketVoice = voice;
 
                     final boolean needsConfig = !configSent;
@@ -514,6 +527,10 @@ final class TTSEngine {
                     ByteArrayOutputStream audioOut = new ByteArrayOutputStream();
                     stage = "read_audio";
                     collectAudio(persistentIn, audioOut);
+                    if (version != synthesisVersion) {
+                        closeSocket();
+                        return new byte[0];
+                    }
                     if (audioOut.size() == 0) {
                         throw new IOException("Edge TTS returned an empty audio response");
                     }
@@ -522,6 +539,7 @@ final class TTSEngine {
                     return audioOut.toByteArray();
                 } catch (IOException ex) {
                     closeSocket();
+                    if (version != synthesisVersion) return new byte[0];
                     lastEx = ex;
                     final String failedStage = stage;
                     final int failedAttempt = attempt;
@@ -666,7 +684,10 @@ final class TTSEngine {
      * them and append the rest to {@code audioOut}.
      */
     private void collectAudio(InputStream in, ByteArrayOutputStream audioOut) throws IOException {
+        ByteArrayOutputStream fragments = null;
+        int fragmentOpcode = 0;
         for (int b0, b1; (b0 = in.read()) >= 0 && (b1 = in.read()) >= 0; ) {
+            boolean fin    = (b0 & 0x80) != 0;
             int  opcode     = b0 & 0x0F;
             boolean masked  = (b1 & 0x80) != 0;
             long payloadLen = b1 & 0x7F;
@@ -678,6 +699,7 @@ final class TTSEngine {
                 for (int i = 0; i < 8; i++) payloadLen = (payloadLen << 8) | (in.read() & 0xFF);
             }
 
+            if (payloadLen > 8 * 1024 * 1024) throw new IOException("WebSocket frame too large");
             byte[] maskBytes = null;
             if (masked) {
                 maskBytes = new byte[4];
@@ -690,8 +712,28 @@ final class TTSEngine {
                 for (int i = 0; i < payload.length; i++) payload[i] ^= maskBytes[i % 4];
             }
 
+            // Reassemble fragmented text/audio messages before interpreting their payload.
+            if (opcode == 0x0) {
+                if (fragments == null) throw new IOException("Unexpected WebSocket continuation");
+                if (fragments.size() + payload.length > 8 * 1024 * 1024)
+                    throw new IOException("WebSocket message too large");
+                fragments.write(payload);
+                if (!fin) continue;
+                payload = fragments.toByteArray();
+                opcode = fragmentOpcode;
+                fragments = null;
+            } else if (opcode == 0x1 || opcode == 0x2) {
+                if (fragments != null) throw new IOException("Unexpected WebSocket data frame");
+                if (!fin) {
+                    fragments = new ByteArrayOutputStream();
+                    fragments.write(payload);
+                    fragmentOpcode = opcode;
+                    continue;
+                }
+            }
             if (opcode == 0x8) {
-                throw new IOException("Edge TTS WebSocket closed before turn.end");
+                int code = payload.length >= 2 ? ((payload[0] & 0xFF) << 8) | (payload[1] & 0xFF) : -1;
+                throw new IOException("Edge TTS WebSocket closed before turn.end (code=" + code + ")");
             }
 
             if (opcode == 0x1) { // text frame
@@ -707,7 +749,7 @@ final class TTSEngine {
                     audioOut.write(payload, audioStart, payload.length - audioStart);
                 }
             }
-            // opcode 0x0 (continuation), 0x9 (ping), 0xA (pong) - ignored
+            // Ping/pong control frames do not carry audio.
         }
         throw new IOException("Edge TTS WebSocket ended before turn.end");
     }

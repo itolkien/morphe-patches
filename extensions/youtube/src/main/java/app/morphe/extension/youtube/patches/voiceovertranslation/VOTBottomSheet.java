@@ -75,7 +75,6 @@ public final class VOTBottomSheet {
             ResourceType.DRAWABLE, "yt_outline_experimental_speaker_vd_theme_24");
 
     public static void show(Context context) {
-        VoiceOverTranslationPatch.preloadTestVoices();
         VoiceOverTranslationPatch.ensureTts();
 
         SheetBottomDialog.DraggableLinearLayout root = SheetBottomDialog
@@ -649,8 +648,7 @@ public final class VOTBottomSheet {
         listView.setOnItemClickListener((parent, view, position, id) -> {
             Settings.VOT_CAPTION_LANGUAGE.save(langValues[position]);
             VoiceOverTranslationPatch.reloadTranscript();
-            VoiceOverTranslationPatch.preloadTestVoices();
-            VOTBottomSheet.show(context);
+                VOTBottomSheet.show(context);
             pickerDialog.dismiss();
         });
 
