@@ -687,7 +687,10 @@ public class VoiceOverTranslationPatch {
                 data = ttsEngine.prefetch(seg.text, voice, lang);
             } catch (Exception ex) {
                 logError(() -> "On-demand synthesis failed for segment " + index, ex);
-                Utils.runOnMainThread(VoiceOverTranslationPatch::triggerNextSegmentCheck);
+                Utils.runOnMainThread(() -> {
+                    ttsEngine.clearBusy(playbackId);
+                    triggerNextSegmentCheck();
+                });
                 return;
             }
             if (data.length > 0) {
@@ -695,19 +698,29 @@ public class VoiceOverTranslationPatch {
             }
             final byte[] finalData = data;
             Utils.runOnMainThread(() -> {
-                if (finalData.length > 0 && playbackId == ttsEngine.getPlaybackId()) {
-                    // Re-read playback speed in case it changed during synthesis.
-                    final float playbackRateNow = rate * VideoInformation.getPlaybackSpeed();
-                    ttsEngine.play(finalData, volume, playbackRateNow, startTimeMsSnapshot, playbackId,
-                            VoiceOverTranslationPatch::triggerNextSegmentCheck);
-                } else {
-                    triggerNextSegmentCheck();
+                if (finalData.length > 0 && playbackId == ttsEngine.getPlaybackId()
+                        && currentVideoId.equals(videoIdSnapshot)
+                        && voice.equals(resolveVoice(resolveTargetLang()))
+                        && VideoState.getCurrent() == VideoState.PLAYING) {
+                    final long nowMs = VideoInformation.getVideoTime();
+                    final long audioMs = TTSEngine.mp3DurationMs(finalData.length);
+                    // Skip the audio already overtaken by video while synthesis was pending.
+                    final long seekMs = Math.min(audioMs, startTimeMsSnapshot
+                            + (long) (Math.max(0, nowMs - speakFromMs) * rate));
+                    if (nowMs >= seg.playbackStartMs && nowMs < seg.playbackEndMs && seekMs < audioMs) {
+                        final float playbackRateNow = rate * VideoInformation.getPlaybackSpeed();
+                        ttsEngine.play(finalData, volume, playbackRateNow, seekMs, playbackId,
+                                VoiceOverTranslationPatch::triggerNextSegmentCheck);
+                        return;
+                    }
                 }
+                ttsEngine.clearBusy(playbackId);
+                triggerNextSegmentCheck();
             });
         });
     }
 
-    private static void triggerNextSegmentCheck() {
+    static void triggerNextSegmentCheck() {
         Utils.runOnMainThreadNowOrLater(() -> {
             if (VideoState.getCurrent() == VideoState.PLAYING) {
                 videoTimeChanged(VideoInformation.getVideoTime());
