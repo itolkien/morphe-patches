@@ -129,8 +129,6 @@ public class VoiceOverTranslationPatch {
     public static final String TTS_ENGINE_SYSTEM = "system";
     private static final String VOT_ID_PREFIX = "vot_";
     private static final String VOT_TEST_ID_PREFIX = "vot_test_";
-    private static final String TEST_VIDEO_ID = "test";
-    private static final int TEST_SEGMENT_INDEX = -1;
 
     static volatile long lastVideoTimeMs;
     // Tracks the latest known position even when paused, unlike lastVideoTimeMs which only
@@ -842,7 +840,8 @@ public class VoiceOverTranslationPatch {
         }
 
         final String lang = resolveTargetLang();
-        byte[] cached = TTSCache.get(TEST_VIDEO_ID, TEST_SEGMENT_INDEX, voiceId, lang, getTestString());
+        final String sample = getTestString();
+        byte[] cached = TTSCache.getPreview(voiceId, lang, sample);
         if (cached != null) {
             PlayerVolumePatch.setDuckMultiplier(Settings.VOT_ORIGINAL_AUDIO_VOLUME.get() / 100.0f);
             final long id = ttsEngine.markBusy();
@@ -851,7 +850,7 @@ public class VoiceOverTranslationPatch {
         }
 
         PlayerVolumePatch.setDuckMultiplier(Settings.VOT_ORIGINAL_AUDIO_VOLUME.get() / 100.0f);
-        ttsEngine.speak(getTestString(), voiceId, resolveTargetLang(), volume, () -> updateIsTestSpeaking(testId));
+        ttsEngine.speak(sample, voiceId, lang, volume, () -> updateIsTestSpeaking(testId));
     }
 
     private static void updateIsTestSpeaking(long testId) {
