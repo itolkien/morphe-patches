@@ -475,6 +475,8 @@ final class TTSEngine {
         synchronized (synthesisLock) {
             IOException lastEx = null;
             for (int attempt = 1; attempt <= 2; attempt++) {
+                String stage = "connect";
+                long startedAt = System.currentTimeMillis();
                 try {
                     String timestamp = edgeTimestamp();
                     String requestId = uuidHex();
@@ -492,22 +494,25 @@ final class TTSEngine {
 
                     // speech.config only needs to be sent once per connection.
                     if (needsConfig) {
+                        stage = "send_config";
                         sendText(persistentOut, "Path: speech.config\r\n"
                                 + "Content-Type: application/json; charset=utf-8\r\n"
                                 + "X-Timestamp: " + timestamp + "\r\n\r\n"
                                 + "{\"context\":{\"synthesis\":{\"audio\":{"
                                 + "\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\","
                                 + "\"wordBoundaryEnabled\":\"false\"},"
-                                + "\"outputFormat\":\"" + AUDIO_FORMAT + "\"}}}}");
+                                + "\"outputFormat\":\"" + AUDIO_FORMAT + "\"}}}}\r\n");
                     }
 
-                    sendText(persistentOut, "Path: ssml\r\n"
-                            + "X-RequestId: " + requestId + "\r\n"
-                            + "X-Timestamp: " + timestamp + "\r\n"
-                            + "Content-Type: application/ssml+xml\r\n\r\n" + ssml);
+                    stage = "send_ssml";
+                    sendText(persistentOut, "X-RequestId:" + requestId + "\r\n"
+                            + "Content-Type:application/ssml+xml\r\n"
+                            + "X-Timestamp:" + timestamp + "Z\r\n"
+                            + "Path:ssml\r\n\r\n" + ssml);
 
                     // Collect audio frames until the server signals turn.end.
                     ByteArrayOutputStream audioOut = new ByteArrayOutputStream();
+                    stage = "read_audio";
                     collectAudio(persistentIn, audioOut);
                     if (audioOut.size() == 0) {
                         throw new IOException("Edge TTS returned an empty audio response");
@@ -518,7 +523,12 @@ final class TTSEngine {
                 } catch (IOException ex) {
                     closeSocket();
                     lastEx = ex;
-                    Logger.printDebug(() -> "TTS synthesis failed, retrying... ", ex);
+                    final String failedStage = stage;
+                    final int failedAttempt = attempt;
+                    final long elapsedMs = System.currentTimeMillis() - startedAt;
+                    Logger.printDebug(() -> "Edge TTS failed at " + failedStage
+                            + " (attempt " + failedAttempt + "/2, voice=" + voice
+                            + ", elapsed=" + elapsedMs + "ms)", ex);
                 }
             }
             throw lastEx;
@@ -526,10 +536,13 @@ final class TTSEngine {
     }
 
     private String buildSsml(String text, String voice, String lang) {
-        String speakLang = lang != null && !lang.isEmpty() ? lang : localePart(voice);
+        // Edge only accepts SSML in its own browser-generated format.
         return "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis'"
-                + " xml:lang='" + speakLang + "'>"
-                + "<voice name='" + voice + "'>" + escapeXml(text) + "</voice></speak>";
+                + " xml:lang='en-US'>"
+                + "<voice name='" + voice + "'>"
+                + "<prosody pitch='+0Hz' rate='+0%' volume='+0%'>"
+                + escapeXml(text)
+                + "</prosody></voice></speak>";
     }
 
     /**
@@ -811,7 +824,9 @@ final class TTSEngine {
     }
 
     private static String edgeTimestamp() {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
+        SimpleDateFormat sdf = new SimpleDateFormat(
+                "EEE MMM dd yyyy HH:mm:ss 'GMT+0000 (Coordinated Universal Time)'",
+                Locale.US);
         sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
         return sdf.format(new Date());
     }
