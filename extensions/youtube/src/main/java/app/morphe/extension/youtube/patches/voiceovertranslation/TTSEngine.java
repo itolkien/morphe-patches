@@ -695,7 +695,10 @@ final class TTSEngine {
             }
 
             if (opcode == 0x1) { // text frame
-                if (new String(payload, StandardCharsets.UTF_8).contains("Path:turn.end")) break;
+                if (new String(payload, StandardCharsets.UTF_8).contains("Path:turn.end")) {
+                    // A completed turn is a normal successful response.
+                    return;
+                }
             } else if (opcode == 0x2 && payload.length > 2) { // binary audio frame
                 // First 2 bytes encode the header length; audio data starts after the header.
                 int headerLen  = ((payload[0] & 0xFF) << 8) | (payload[1] & 0xFF);
