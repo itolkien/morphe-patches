@@ -131,7 +131,6 @@ public class VoiceOverTranslationPatch {
     private static final String VOT_TEST_ID_PREFIX = "vot_test_";
     private static final String TEST_VIDEO_ID = "test";
     private static final int TEST_SEGMENT_INDEX = -1;
-    private static final long TEST_PREFETCH_WAIT = 500;
 
     static volatile long lastVideoTimeMs;
     // Tracks the latest known position even when paused, unlike lastVideoTimeMs which only
@@ -173,7 +172,6 @@ public class VoiceOverTranslationPatch {
 
     private static boolean isTestSpeaking;
     private static long currentTestId;
-    private static long currentPreloadId;
     private static String lastTestVoiceId = "";
 
     private static final TTSEngine ttsEngine = TTSEngine.INSTANCE;
@@ -240,6 +238,12 @@ public class VoiceOverTranslationPatch {
 
         if (!Settings.VOT_ENABLED.get() || !sessionEnabled) return;
         if (PlayerType.getCurrent() == PlayerType.INLINE_MINIMAL) return;
+        if (!Settings.VOT_USE_NATIVE_TTS.get()) {
+            final boolean catalogMissing = VoiceCatalog.resolve(resolveTargetLang(), null) == null;
+            EdgeTtsVoiceRepository.load(Utils.getContext(), () -> {
+                if (catalogMissing && videoId.equals(currentVideoId)) onVoiceCatalogLoaded();
+            });
+        }
         TTSPrefetcher.updateVideo(videoId, segments);
         loadTranscript(videoId);
 
@@ -472,6 +476,17 @@ public class VoiceOverTranslationPatch {
         Utils.verifyOnMainThread();
         for (Runnable callback : stateChangeCallbacks) {
             callback.run();
+        }
+    }
+
+    /** Re-evaluate the current segment when the first online catalog arrives. */
+    static void onVoiceCatalogLoaded() {
+        if (Settings.VOT_USE_NATIVE_TTS.get()
+                || VoiceCatalog.resolve(resolveTargetLang(), null) == null) return;
+        lastSpokenIndex = -1;
+        TTSPrefetcher.triggerRescan();
+        if (VideoState.getCurrent() == VideoState.PLAYING) {
+            videoTimeChanged(VideoInformation.getVideoTime());
         }
     }
 
@@ -845,52 +860,6 @@ public class VoiceOverTranslationPatch {
     private static void updateIsTestSpeaking(long testId) {
         Utils.verifyOnMainThread();
         if (testId == currentTestId) isTestSpeaking = false;
-    }
-
-    /**
-     * Preloads test phrases for all Edge TTS voices in the current target language.
-     */
-    static void preloadTestVoices() {
-        Utils.verifyOnMainThread();
-        final long preloadId = ++currentPreloadId;
-
-        String lang = resolveTargetLang();
-        List<VoiceCatalog.Voice> voices = VoiceCatalog.getVoicesForLang(lang);
-        if (voices == null || voices.isEmpty()) return;
-
-        Utils.runOnBackgroundThread(() -> {
-            String testString = getTestString();
-            for (VoiceCatalog.Voice voice : voices) {
-                if (preloadId != currentPreloadId) {
-                    Logger.printDebug(() -> "Aborting stale preload request: " + preloadId);
-                    return;
-                }
-
-                if (TTSCache.get(TEST_VIDEO_ID, TEST_SEGMENT_INDEX, voice.id, lang, testString) != null) {
-                    continue;
-                }
-
-                byte[] diskData = TTSCache.getTestSampleFromDisk(voice.id, lang);
-                if (diskData != null) {
-                    TTSCache.put(TEST_VIDEO_ID, TEST_SEGMENT_INDEX, voice.id, lang, testString, diskData);
-                    continue;
-                }
-
-                try {
-                    Logger.printDebug(() -> "Prefetching test phrase for: " + voice.id);
-                    byte[] data = ttsEngine.prefetch(testString, voice.id, lang);
-                    if (data.length > 0) {
-                        TTSCache.put(TEST_VIDEO_ID, TEST_SEGMENT_INDEX, voice.id, lang, testString, data);
-                        TTSCache.putTestSampleToDisk(voice.id, lang, data);
-                    }
-                    Thread.sleep(TEST_PREFETCH_WAIT);
-
-                } catch (Exception ex) {
-                    logError(() -> "preloadTestVoices failure: " + voice, ex);
-                    return;
-                }
-            }
-        });
     }
 
     private static void stopTts() {

@@ -1,0 +1,172 @@
+/*
+ * Copyright 2026 Morphe contributors.
+ * See the project NOTICE for GPLv3 Section 7 terms.
+ */
+package app.morphe.extension.youtube.patches.voiceovertranslation;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+
+import app.morphe.extension.shared.Logger;
+import app.morphe.extension.shared.Utils;
+
+/** Microsoft's voice list plus the last successfully downloaded disk copy. */
+final class EdgeTtsVoiceRepository {
+    private static final String PREFS = "morphe_vot_edge_voices";
+    private static final String KEY_CATALOG = "catalog";
+    private static final String KEY_FETCHED_AT = "fetched_at";
+    private static final long CACHE_TTL_MS = 24L * 60 * 60 * 1_000;
+    private static final int CONNECT_TIMEOUT_MS = 10_000;
+    private static final int READ_TIMEOUT_MS = 12_000;
+    private static final int MAX_RESPONSE_LENGTH = 2_000_000;
+    private static final int MIN_VALID_VOICES = 100;
+
+    private static final Object LOCK = new Object();
+    private static final List<Runnable> callbacks = new ArrayList<>();
+    private static boolean cacheLoaded;
+    private static boolean fetching;
+
+    private EdgeTtsVoiceRepository() {}
+
+    static void load(Context context, Runnable onUpdate) {
+        update(context, false, onUpdate);
+    }
+
+    static void refresh(Context context, Runnable onUpdate) {
+        update(context, true, onUpdate);
+    }
+
+    private static void update(Context context, boolean force, Runnable onUpdate) {
+        Context app = context.getApplicationContext();
+        SharedPreferences prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        synchronized (LOCK) {
+            if (!cacheLoaded) {
+                cacheLoaded = true;
+                String saved = prefs.getString(KEY_CATALOG, null);
+                if (saved != null) {
+                    try {
+                        VoiceCatalog.setAvailableVoices(parse(saved));
+                    } catch (Exception ex) {
+                        Logger.printDebug(() -> "Invalid saved voice catalog: " + ex);
+                    }
+                }
+            }
+            if (fetching) {
+                if (onUpdate != null) callbacks.add(onUpdate);
+                return;
+            }
+            long cachedAt = prefs.getLong(KEY_FETCHED_AT, 0);
+            long now = System.currentTimeMillis();
+            if (!force && cachedAt > 0 && now >= cachedAt && now - cachedAt < CACHE_TTL_MS
+                    && VoiceCatalog.resolve("en", null) != null) {
+                if (onUpdate != null) Utils.runOnMainThread(onUpdate);
+                return;
+            }
+            fetching = true;
+            if (onUpdate != null) callbacks.add(onUpdate);
+        }
+        Utils.runOnBackgroundThread(() -> {
+            try {
+                String json = download();
+                List<VoiceCatalog.Voice> voices = parse(json);
+                VoiceCatalog.setAvailableVoices(voices);
+                prefs.edit().putString(KEY_CATALOG, json)
+                        .putLong(KEY_FETCHED_AT, System.currentTimeMillis()).apply();
+            } catch (Exception ex) {
+                Logger.printDebug(() -> "Edge voice catalog download failed: " + ex);
+            } finally {
+                List<Runnable> done;
+                synchronized (LOCK) {
+                    fetching = false;
+                    done = new ArrayList<>(callbacks);
+                    callbacks.clear();
+                }
+                if (!done.isEmpty()) Utils.runOnMainThread(() -> {
+                    for (Runnable callback : done) callback.run();
+                });
+            }
+        });
+    }
+
+    private static String download() throws IOException {
+        String token = EdgeTtsConfig.TRUSTED_CLIENT_TOKEN;
+        String query = "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/"
+                + "voices/list?trustedclienttoken=" + token
+                + "&Sec-MS-GEC=" + EdgeTtsV2Token.generate(System.currentTimeMillis(), token)
+                + "&Sec-MS-GEC-Version=" + EdgeTtsConfig.SEC_MS_GEC_VERSION;
+
+        HttpURLConnection conn = (HttpURLConnection) new URL(query).openConnection();
+        conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
+        conn.setReadTimeout(READ_TIMEOUT_MS);
+        conn.setRequestProperty("User-Agent", EdgeTtsConfig.USER_AGENT);
+        conn.setRequestProperty("Accept", "*/*");
+        conn.setRequestProperty("Sec-CH-UA",
+                "\" Not;A Brand\";v=\"99\", \"Microsoft Edge\";v=\"143\", \"Chromium\";v=\"143\"");
+        conn.setRequestProperty("Sec-CH-UA-Mobile", "?0");
+        conn.setRequestProperty("Sec-Fetch-Site", "none");
+        conn.setRequestProperty("Sec-Fetch-Mode", "cors");
+        conn.setRequestProperty("Sec-Fetch-Dest", "empty");
+        conn.setRequestProperty("Cookie", "muid="
+                + UUID.randomUUID().toString().replace("-", "").toUpperCase(Locale.US));
+        try {
+            int code = conn.getResponseCode();
+            if (code != HttpURLConnection.HTTP_OK) {
+                throw new IOException("HTTP " + code);
+            }
+            try (InputStream input = conn.getInputStream();
+                 BufferedReader reader = new BufferedReader(
+                         new InputStreamReader(input, StandardCharsets.UTF_8))) {
+                StringBuilder body = new StringBuilder();
+                char[] chars = new char[4096];
+                int read;
+                while ((read = reader.read(chars)) != -1) {
+                    if (body.length() + read > MAX_RESPONSE_LENGTH) {
+                        throw new IOException("Voice catalog response too large");
+                    }
+                    body.append(chars, 0, read);
+                }
+                return body.toString();
+            }
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    /** Reject incomplete catalogs rather than replacing a working disk cache. */
+    static List<VoiceCatalog.Voice> parse(String json) throws Exception {
+        JSONArray rows = new JSONArray(json);
+        Map<String, VoiceCatalog.Voice> unique = new LinkedHashMap<>();
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject row = rows.optJSONObject(i);
+            if (row == null) continue;
+            String id = row.optString("ShortName", "");
+            String locale = row.optString("Locale", "");
+            String gender = row.optString("Gender", "");
+            if (id.length() < 8 || id.length() > 100 || locale.isEmpty()
+                    || !id.startsWith(locale + "-") || !id.matches("[A-Za-z0-9-]+")) {
+                continue;
+            }
+            if (!"Male".equalsIgnoreCase(gender) && !"Female".equalsIgnoreCase(gender)) continue;
+            unique.putIfAbsent(id, new VoiceCatalog.Voice("Male".equalsIgnoreCase(gender), id));
+        }
+        if (unique.size() < MIN_VALID_VOICES) {
+            throw new IOException("Incomplete Edge voice catalog: " + unique.size() + " voices");
+        }
+        return new ArrayList<>(unique.values());
+    }
+}
