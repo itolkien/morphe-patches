@@ -481,6 +481,7 @@ public class VoiceOverTranslationPatch {
         if (!Settings.VOT_USE_NATIVE_TTS.get()) {
             final boolean catalogWasEmpty = VoiceCatalog.resolve(resolveTargetLang(), null) == null;
             EdgeTtsVoiceRepository.refreshIfNeeded(Utils.getContext(), () -> {
+                if (!videoId.equals(currentVideoId)) return;
                 if (catalogWasEmpty && VoiceCatalog.resolve(resolveTargetLang(), null) != null) {
                     lastSpokenIndex = -1;
                 }

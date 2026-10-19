@@ -368,8 +368,15 @@ public final class VOTBottomSheet {
             refreshButton.setAlpha(state.refreshing ? 0.5f : 1f);
         };
         showStatus.run();
+        final boolean[] catalogMissing = {VoiceCatalog.resolve(lang, null) == null};
         Runnable updateVoices = () -> {
             if (!pickerDialog.isShowing()) return;
+            boolean available = VoiceCatalog.resolve(lang, null) != null;
+            if (catalogMissing[0] && available && !Settings.VOT_USE_NATIVE_TTS.get()) {
+                VoiceOverTranslationPatch.interruptSpeech();
+                VoiceOverTranslationPatch.triggerNextSegmentCheck();
+            }
+            catalogMissing[0] = !available;
             int previousScrollY = scroll.getScrollY();
             populateVoiceRows(context, listLayout, pickerDialog, lang,
                     fg, rippleColor, speakerRes);
