@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - dev
+      - ci/edge-tts-v2-mpp-test
   pull_request:
     branches:
       - dev
