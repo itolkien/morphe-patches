@@ -707,13 +707,13 @@ public class VoiceOverTranslationPatch {
                         final long remainingAudioMs = Math.max(0,
                                 TTSEngine.mp3DurationMs(finalData.length) - startTimeMsSnapshot);
                         // Recalculate after synthesis; speed up instead of skipping words.
-                        final float playbackRate = calculateSpeechRate(remainingAudioMs,
+                        final float adjustedRate = calculateSpeechRate(remainingAudioMs,
                                 seg.playbackEndMs - nowMs);
-                        currentTtsBaseRate = playbackRate;
+                        currentTtsBaseRate = adjustedRate;
                         lastAppliedPlaybackSpeed = VideoInformation.getPlaybackSpeed();
-                        ttsEndVideoTimeMs = nowMs + (long) (remainingAudioMs / playbackRate);
+                        ttsEndVideoTimeMs = nowMs + (long) (remainingAudioMs / adjustedRate);
                         ttsEngine.play(finalData, volume,
-                                playbackRate * lastAppliedPlaybackSpeed, startTimeMsSnapshot, playbackId,
+                                adjustedRate * lastAppliedPlaybackSpeed, startTimeMsSnapshot, playbackId,
                                 VoiceOverTranslationPatch::triggerNextSegmentCheck);
                         return;
                     }
