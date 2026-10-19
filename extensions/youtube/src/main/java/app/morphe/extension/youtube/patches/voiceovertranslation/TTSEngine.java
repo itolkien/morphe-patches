@@ -101,6 +101,15 @@ final class TTSEngine {
     private OutputStream persistentOut;
     @GuardedBy("synthesisLock")
     private boolean configSent;
+    private volatile long synthesisGeneration;
+    // Published only during synthesis/handshake; closing it interrupts a superseded request.
+    private volatile SSLSocket inFlightSocket;
+
+    static final class SynthesisCancelledException extends IOException {
+        SynthesisCancelledException() {
+            super("Superseded Edge TTS request");
+        }
+    }
 
     private TTSEngine() {}
 
@@ -116,12 +125,15 @@ final class TTSEngine {
     void speak(String text, String voiceId, String lang, float volume, Runnable onDone) {
         Utils.verifyOnMainThread();
         final long id = markBusy();
+        final long generation = synthesisGeneration;
 
         Utils.runOnBackgroundThread(() -> {
             try {
                 byte[] cached = TTSCache.getPreview(voiceId, lang, text);
-                byte[] data = cached != null ? cached : prefetch(text, voiceId, lang);
-                if (cached == null && data.length > 0) TTSCache.putPreview(voiceId, lang, text, data);
+                byte[] data = cached != null ? cached : prefetch(text, voiceId, lang, generation);
+                if (cached == null && data.length > 0 && generation == synthesisGeneration) {
+                    TTSCache.putPreview(voiceId, lang, text, data);
+                }
                 Utils.runOnMainThread(() -> {
                     if (data.length > 0 && !stopped && id == playbackId) {
                         play(data, volume, VideoInformation.getPlaybackSpeed(), 0, id, onDone);
@@ -131,7 +143,9 @@ final class TTSEngine {
                     }
                 });
             } catch (Exception ex) {
-                VoiceOverTranslationPatch.logError(() -> "Edge TTS speak failed", ex);
+                if (!(ex instanceof SynthesisCancelledException)) {
+                    VoiceOverTranslationPatch.logError(() -> "Edge TTS speak failed", ex);
+                }
                 Utils.runOnMainThread(() -> {
                     if (id == playbackId) {
                         speaking = false;
@@ -192,7 +206,31 @@ final class TTSEngine {
 
     /** Synthesizes {@code text} via Edge TTS at natural speed. Must be called off the main thread. */
     byte[] prefetch(String text, String voice, String lang) throws Exception {
-        return synthesizeEdge(text, voice, lang);
+        return prefetch(text, voice, lang, synthesisGeneration);
+    }
+
+    byte[] prefetch(String text, String voice, String lang, long generation) throws Exception {
+        return synthesizeEdge(text, voice, lang, generation);
+    }
+
+    long getSynthesisGeneration() {
+        return synthesisGeneration;
+    }
+
+    private void requireSynthesisGeneration(long generation) throws SynthesisCancelledException {
+        if (generation != synthesisGeneration) throw new SynthesisCancelledException();
+    }
+
+    /** Aborts outdated requests without blocking Android's UI thread. */
+    void cancelSynthesis() {
+        Utils.verifyOnMainThread();
+        synthesisGeneration++;
+        SSLSocket socket = inFlightSocket;
+        if (socket != null) {
+            Utils.runOnBackgroundThread(() -> {
+                try { socket.close(); } catch (IOException ignored) {}
+            });
+        }
     }
 
     /**
@@ -202,7 +240,11 @@ final class TTSEngine {
     void warmConnection() throws Exception {
         Utils.verifyOffMainThread();
         synchronized (synthesisLock) {
-            ensureConnected();
+            try {
+                ensureConnected();
+            } finally {
+                inFlightSocket = null;
+            }
         }
     }
 
@@ -470,52 +512,63 @@ final class TTSEngine {
         }
     }
 
-    private byte[] synthesizeEdge(String text, String voice, String lang) throws Exception {
+    private byte[] synthesizeEdge(String text, String voice, String lang, long generation)
+            throws Exception {
         Utils.verifyOffMainThread();
+        final long queuedAt = System.currentTimeMillis();
         synchronized (synthesisLock) {
-            IOException lastEx = null;
-            for (int attempt = 1; attempt <= 2; attempt++) {
-                try {
-                    String timestamp = edgeTimestamp();
-                    String requestId = uuidHex();
-                    String ssml = buildSsml(text, voice, lang);
-
-                    // Ensure we have a valid connection.
-                    ensureConnected();
-
-                    final boolean needsConfig = !configSent;
-                    if (needsConfig) configSent = true;
-
-                    // speech.config only needs to be sent once per connection.
-                    if (needsConfig) {
-                        sendText(persistentOut, "Path: speech.config\r\n"
-                                + "Content-Type: application/json; charset=utf-8\r\n"
-                                + "X-Timestamp: " + timestamp + "\r\n\r\n"
-                                + "{\"context\":{\"synthesis\":{\"audio\":{"
-                                + "\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\","
-                                + "\"wordBoundaryEnabled\":\"false\"},"
-                                + "\"outputFormat\":\"" + AUDIO_FORMAT + "\"}}}}");
-                    }
-
-                    sendText(persistentOut, "Path: ssml\r\n"
-                            + "X-RequestId: " + requestId + "\r\n"
-                            + "X-Timestamp: " + timestamp + "\r\n"
-                            + "Content-Type: application/ssml+xml\r\n\r\n" + ssml);
-
-                    // Collect audio frames until the server signals turn.end.
-                    ByteArrayOutputStream audioOut = new ByteArrayOutputStream();
-                    collectAudio(persistentIn, audioOut);
-                    if (audioOut.size() == 0) throw new IOException("Edge TTS returned no audio");
-
-                    lastSynthesisEndMs = System.currentTimeMillis();
-                    return audioOut.toByteArray();
-                } catch (IOException ex) {
-                    closeSocket();
-                    lastEx = ex;
-                    Logger.printDebug(() -> "TTS synthesis failed, retrying... ", ex);
+            try {
+                requireSynthesisGeneration(generation);
+                final long queuedMs = System.currentTimeMillis() - queuedAt;
+                if (queuedMs > 250) {
+                    Logger.printDebug(() -> "Edge TTS " + voice + " waited " + queuedMs + "ms for synthesis");
                 }
+                IOException lastEx = null;
+                for (int attempt = 1; attempt <= 2; attempt++) {
+                    requireSynthesisGeneration(generation);
+                    try {
+                        String timestamp = edgeTimestamp();
+                        String requestId = uuidHex();
+                        String ssml = buildSsml(text, voice, lang);
+
+                        ensureConnected();
+                        requireSynthesisGeneration(generation);
+
+                        final boolean needsConfig = !configSent;
+                        if (needsConfig) configSent = true;
+                        if (needsConfig) {
+                            sendText(persistentOut, "Path: speech.config\r\n"
+                                    + "Content-Type: application/json; charset=utf-8\r\n"
+                                    + "X-Timestamp: " + timestamp + "\r\n\r\n"
+                                    + "{\"context\":{\"synthesis\":{\"audio\":{"
+                                    + "\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\","
+                                    + "\"wordBoundaryEnabled\":\"false\"},"
+                                    + "\"outputFormat\":\"" + AUDIO_FORMAT + "\"}}}}");
+                        }
+
+                        sendText(persistentOut, "Path: ssml\r\n"
+                                + "X-RequestId: " + requestId + "\r\n"
+                                + "X-Timestamp: " + timestamp + "\r\n"
+                                + "Content-Type: application/ssml+xml\r\n\r\n" + ssml);
+
+                        ByteArrayOutputStream audioOut = new ByteArrayOutputStream();
+                        collectAudio(persistentIn, audioOut);
+                        requireSynthesisGeneration(generation);
+                        if (audioOut.size() == 0) throw new IOException("Edge TTS returned no audio");
+
+                        lastSynthesisEndMs = System.currentTimeMillis();
+                        return audioOut.toByteArray();
+                    } catch (IOException ex) {
+                        closeSocket();
+                        requireSynthesisGeneration(generation);
+                        lastEx = ex;
+                        Logger.printDebug(() -> "TTS synthesis failed, retrying... ", ex);
+                    }
+                }
+                throw lastEx;
+            } finally {
+                inFlightSocket = null;
             }
-            throw lastEx;
         }
     }
 
@@ -535,7 +588,10 @@ final class TTSEngine {
         if (persistentSocket != null && !persistentSocket.isClosed()) {
             // Proactively close the socket if it has been idle long enough for the
             // server to have dropped it; avoids a "Connection reset" on the first send.
-            if (System.currentTimeMillis() - lastSynthesisEndMs <= SOCKET_MAX_IDLE_MS) return;
+            if (System.currentTimeMillis() - lastSynthesisEndMs <= SOCKET_MAX_IDLE_MS) {
+                inFlightSocket = persistentSocket;
+                return;
+            }
             closeSocket();
         }
 
@@ -547,6 +603,7 @@ final class TTSEngine {
                 + "&Sec-MS-GEC-Version=" + SEC_MS_GEC_VERSION;
 
         SSLSocket socket = (SSLSocket) SSLSocketFactory.getDefault().createSocket();
+        inFlightSocket = socket;
         try {
             socket.connect(new InetSocketAddress(WS_HOST, WS_PORT), CONNECT_TIMEOUT_MS);
             socket.setSoTimeout(READ_TIMEOUT_MS);
@@ -560,6 +617,7 @@ final class TTSEngine {
             configSent       = false;
         } catch (Exception e) {
             try { socket.close(); } catch (IOException ignored) {}
+            if (inFlightSocket == socket) inFlightSocket = null;
             throw e;
         }
     }
@@ -571,7 +629,9 @@ final class TTSEngine {
     private void closeSocket() {
         Utils.verifyOffMainThread();
         if (persistentSocket != null) {
-            try { persistentSocket.close(); } catch (Exception ignored) {}
+            SSLSocket socket = persistentSocket;
+            try { socket.close(); } catch (Exception ignored) {}
+            if (inFlightSocket == socket) inFlightSocket = null;
             persistentSocket = null;
             persistentIn     = null;
             persistentOut    = null;

@@ -30,6 +30,21 @@ public class TTSEngineProtocolTest {
     }
 
     @Test
+    public void supersededRequestIsRejectedBeforeConnecting() throws Exception {
+        java.lang.reflect.Field version = TTSEngine.class.getDeclaredField("synthesisGeneration");
+        version.setAccessible(true);
+        long initial = version.getLong(TTSEngine.INSTANCE);
+        try {
+            version.setLong(TTSEngine.INSTANCE, initial + 1);
+            assertThrows(TTSEngine.SynthesisCancelledException.class,
+                    () -> invoke("requireSynthesisGeneration", new Class<?>[]{long.class}, initial));
+            invoke("requireSynthesisGeneration", new Class<?>[]{long.class}, initial + 1);
+        } finally {
+            version.setLong(TTSEngine.INSTANCE, initial);
+        }
+    }
+
+    @Test
     public void acceptsValidUpgradeOnly() throws Exception {
         String valid = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n";
         invoke("readHttpUpgrade", new Class<?>[]{java.io.InputStream.class},

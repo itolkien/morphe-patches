@@ -456,8 +456,8 @@ public final class VOTBottomSheet {
                 Settings.VOT_USE_NATIVE_TTS.save(false);
                 Settings.VOT_TTS_VOICE_TYPE.save(value);
             }
-            VoiceOverTranslationPatch.resetPlaybackState();
             VoiceOverTranslationPatch.interruptSpeech();
+            VoiceOverTranslationPatch.resetPlaybackState();
             VOTBottomSheet.show(context);
             pickerDialog.dismiss();
         });

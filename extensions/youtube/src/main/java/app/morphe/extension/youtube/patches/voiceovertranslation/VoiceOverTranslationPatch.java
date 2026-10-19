@@ -230,6 +230,7 @@ public class VoiceOverTranslationPatch {
         Logger.printDebug(() -> "preloadTranslations newVideoLoaded");
         TranscriptTranslator.requestAbort();
         stopTts();
+        ttsEngine.cancelSynthesis();
         currentVideoId = videoId;
         segments = new ArrayList<>();
         httpErrorDialogShownThisVideo = false;
@@ -420,6 +421,7 @@ public class VoiceOverTranslationPatch {
     public static void interruptSpeech() {
         Utils.verifyOnMainThread();
         stopTts();
+        ttsEngine.cancelSynthesis();
     }
 
     /**
@@ -455,6 +457,7 @@ public class VoiceOverTranslationPatch {
         Utils.verifyOnMainThread();
         if (currentVideoId.isEmpty()) return;
         stopTts();
+        ttsEngine.cancelSynthesis();
         segments = new ArrayList<>();
         lastSpokenIndex = -1;
         // Without this, in-flight onUpdate callbacks for the old language would restore
@@ -691,14 +694,17 @@ public class VoiceOverTranslationPatch {
         // Synthesize at natural speed so the result can be cached and reused at any rate;
         // playback rate is applied by MediaPlayer instead.
         final long playbackId = ttsEngine.markBusy();
+        final long generation = ttsEngine.getSynthesisGeneration();
         final String videoIdSnapshot = currentVideoId;
         final long startTimeMsSnapshot = startTimeMs;
         Utils.runOnBackgroundThread(() -> {
             byte[] data;
             try {
-                data = ttsEngine.prefetch(seg.text, voice, lang);
+                data = ttsEngine.prefetch(seg.text, voice, lang, generation);
             } catch (Exception ex) {
-                logError(() -> "On-demand synthesis failed for segment " + index, ex);
+                if (!(ex instanceof TTSEngine.SynthesisCancelledException)) {
+                    logError(() -> "On-demand synthesis failed for segment " + index, ex);
+                }
                 Utils.runOnMainThread(VoiceOverTranslationPatch::triggerNextSegmentCheck);
                 return;
             }
@@ -814,6 +820,7 @@ public class VoiceOverTranslationPatch {
 
         final boolean wasSameVoice = isTestSpeaking && voiceId.equals(lastTestVoiceId);
         stopTts();
+        ttsEngine.cancelSynthesis();
         if (wasSameVoice) return;
 
         final long testId = ++currentTestId;

@@ -197,8 +197,8 @@ final class TTSPrefetcher {
                     continue;
                 }
 
-                final boolean success = fetch(videoId, segments.get(next.index),
-                        next.index, segments.size(), voice, voiceLang);
+                final boolean success = fetch(videoId, segments, segments.get(next.index),
+                        next.index, voice, voiceLang);
                 lastFetchTimeMs = System.currentTimeMillis();
 
                 synchronized (lock) {
@@ -270,26 +270,42 @@ final class TTSPrefetcher {
         return null;
     }
 
-    private static boolean fetch(String videoId, TranscriptSegment seg, int index,
-                                 int totalSegments, String voice, String lang) {
+    private static boolean requestStillCurrent(String videoId, List<TranscriptSegment> snapshot,
+                                               int index, String voice, String lang) {
+        synchronized (lock) {
+            return videoId.equals(currentVideoId) && snapshot == currentSegments
+                    && index < snapshot.size() && !Settings.VOT_USE_NATIVE_TTS.get()
+                    && lang.equals(VoiceOverTranslationPatch.resolveTargetLang())
+                    && voice.equals(VoiceCatalog.resolve(lang, Settings.VOT_TTS_VOICE_TYPE.get()));
+        }
+    }
+
+    private static boolean fetch(String videoId, List<TranscriptSegment> snapshot,
+                                 TranscriptSegment seg, int index, String voice, String lang) {
         try {
+            if (!requestStillCurrent(videoId, snapshot, index, voice, lang)) return true;
+            final long generation = engine.getSynthesisGeneration();
             final long start = System.currentTimeMillis();
-            final byte[] data = engine.prefetch(seg.text, voice, lang);
+            final byte[] data = engine.prefetch(seg.text, voice, lang, generation);
+            if (generation != engine.getSynthesisGeneration()
+                    || !requestStillCurrent(videoId, snapshot, index, voice, lang)) return true;
             if (data.length > 0) {
                 TTSCache.put(videoId, index, voice, lang, seg.text, data);
                 seg.durationMs = TTSEngine.mp3DurationMs(data.length);
-                engine.adjustPlaybackTimes(currentSegments, index,
+                engine.adjustPlaybackTimes(snapshot, index,
                         VoiceOverTranslationPatch.getLastSpokenIndex(),
                         videoId, voice, lang);
                 final int textSubstringLength = 30;
                 Logger.printDebug(() -> "prefetched TTS: " + videoId
-                        + " segment: " + index + "/" + totalSegments + " fetchTime: "
+                        + " segment: " + index + "/" + snapshot.size() + " fetchTime: "
                         + (System.currentTimeMillis() - start) + "ms text: "
                         + (seg.text.length() > textSubstringLength ? seg.text
                         .substring(0, textSubstringLength).concat("...") : seg.text));
                 return true;
             }
             return false;
+        } catch (TTSEngine.SynthesisCancelledException ignored) {
+            return true; // User changed voices: no error and no rate-limit backoff.
         } catch (Exception ex) {
             VoiceOverTranslationPatch.logError(() -> "Prefetch failed for segment " + index, ex);
             return false;
