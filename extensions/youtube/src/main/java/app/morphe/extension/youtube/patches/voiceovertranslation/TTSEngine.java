@@ -207,10 +207,6 @@ final class TTSEngine {
     }
 
     /** Synthesizes {@code text} via Edge TTS at natural speed. Must be called off the main thread. */
-    byte[] prefetch(String text, String voice, String lang) throws Exception {
-        return prefetch(text, voice, lang, synthesisGeneration);
-    }
-
     byte[] prefetch(String text, String voice, String lang, long generation) throws Exception {
         return synthesizeEdge(text, voice, lang, generation);
     }
