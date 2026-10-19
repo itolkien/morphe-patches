@@ -105,6 +105,7 @@ public final class VOTBottomSheet {
         Runnable refreshEngine = () -> refreshEngineRow(engineRow);
         engineRow.setOnClickListener(v -> showEnginePicker(context, mainRef[0]));
         refreshEngine.run();
+        EdgeTtsVoiceRepository.refreshIfNeeded(context, refreshEngine);
 
         LinearLayout translationRow = makeValueRow(context, fg, str("morphe_vot_translation_service_title"));
         Runnable refreshTranslation = () -> ((TextView) translationRow.getTag())
@@ -200,19 +201,16 @@ public final class VOTBottomSheet {
         String voiceId = Settings.VOT_TTS_VOICE_TYPE.get();
         VoiceCatalog.Voice voice = VoiceCatalog.getVoice(voiceId);
 
-        if (Settings.VOT_USE_NATIVE_TTS.get() || (voice == null && VoiceCatalog.resolve(lang, null) == null)) {
+        if (Settings.VOT_USE_NATIVE_TTS.get()) {
             valueView.setText(str("morphe_vot_tts_system"));
         } else if (voice != null && (voice.languageTag.equalsIgnoreCase(VoiceCatalog.getIso639(lang)) || voice.isMultilingual)) {
             valueView.setText(voice.dialogDisplayName);
         } else {
             String defaultVoiceId = VoiceCatalog.resolve(lang, null);
             VoiceCatalog.Voice defaultVoice = VoiceCatalog.getVoice(defaultVoiceId);
-            valueView.setText(defaultVoice != null ? defaultVoice.dialogDisplayName : str("morphe_vot_tts_system"));
+            valueView.setText(defaultVoice != null ? defaultVoice.dialogDisplayName
+                    : str("morphe_vot_catalog_unavailable"));
         }
-
-        final boolean edgeAvailable = VoiceCatalog.resolve(lang, null) != null;
-        row.setAlpha(edgeAvailable ? 1f : 0.4f);
-        row.setClickable(edgeAvailable);
     }
 
     private static void showTranslationServicePicker(Context context, SheetBottomDialog.SlideDialog mainDialog) {
@@ -349,17 +347,11 @@ public final class VOTBottomSheet {
         refreshButton.setTextColor(fg);
         refreshButton.setGravity(Gravity.CENTER);
         refreshButton.setPadding(Dim.dp16, Dim.dp8, Dim.dp16, Dim.dp8);
-        TextView refreshFeedback = new TextView(context);
-        refreshFeedback.setTextSize(12);
-        refreshFeedback.setTextColor(secondaryColor(fg));
-        refreshFeedback.setPadding(Dim.dp16, 0, Dim.dp16, Dim.dp8);
-        refreshFeedback.setVisibility(View.GONE);
-
         Runnable showStatus = () -> {
             EdgeTtsVoiceRepository.Status state = EdgeTtsVoiceRepository.getStatus();
-            String source = str("morphe_vot_catalog_source_" + state.source.name().toLowerCase(java.util.Locale.ROOT));
-            String details = str("morphe_vot_catalog_status", source,
-                    state.totalVoices, state.added, state.removed);
+            String details = state.totalVoices == 0
+                    ? str("morphe_vot_catalog_unavailable")
+                    : str("morphe_vot_catalog_status", state.totalVoices);
             if (state.lastUpdatedMs > 0) {
                 String updated = java.text.DateFormat.getDateTimeInstance(
                         java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
@@ -376,51 +368,28 @@ public final class VOTBottomSheet {
             refreshButton.setAlpha(state.refreshing ? 0.5f : 1f);
         };
         showStatus.run();
+        Runnable updateVoices = () -> {
+            if (!pickerDialog.isShowing()) return;
+            int previousScrollY = scroll.getScrollY();
+            populateVoiceRows(context, listLayout, pickerDialog, lang,
+                    fg, rippleColor, speakerRes);
+            scroll.post(() -> scroll.scrollTo(0, previousScrollY));
+            showStatus.run();
+        };
         refreshButton.setOnClickListener(v -> {
-            refreshFeedback.setText(str("morphe_vot_catalog_refreshing"));
-            refreshFeedback.setVisibility(View.VISIBLE);
-            EdgeTtsVoiceRepository.refreshNow(context, () -> {
-                if (!pickerDialog.isShowing()) return;
-
-                EdgeTtsVoiceRepository.Status result = EdgeTtsVoiceRepository.getStatus();
-                if (result.error != null) {
-                    refreshFeedback.setText(str("morphe_vot_catalog_refresh_failed"));
-                } else if (result.added == 0 && result.removed == 0) {
-                    refreshFeedback.setText(str("morphe_vot_catalog_unchanged"));
-                } else {
-                    refreshFeedback.setText(str("morphe_vot_catalog_changed",
-                            result.added, result.removed));
-                }
-
-                int previousScrollY = scroll.getScrollY();
-                populateVoiceRows(context, listLayout, pickerDialog, lang,
-                        fg, rippleColor, speakerRes);
-                scroll.post(() -> scroll.scrollTo(0, previousScrollY));
-                showStatus.run();
-            });
+            EdgeTtsVoiceRepository.refreshNow(context, updateVoices);
             showStatus.run();
         });
         pickerRoot.addView(catalogStatus);
         pickerRoot.addView(refreshButton);
-        pickerRoot.addView(refreshFeedback);
         pickerRoot.addView(scroll);
         mainDialog.dismiss();
         pickerDialog.setOnCancelListener(d -> VOTBottomSheet.show(context));
         PipDismissHelper.dismissOnPip(pickerDialog);
         pickerDialog.show();
 
-        // Do not block the picker while a fresh catalog is fetched. The bundled
-        // and disk-cached voices remain available until the refresh finishes.
-        EdgeTtsVoiceRepository.refreshIfNeeded(context, () -> {
-            if (pickerDialog.isShowing()
-                    && lang.equals(VoiceCatalog.getIso639(VoiceOverTranslationPatch.resolveTargetLang()))) {
-                int previousScrollY = scroll.getScrollY();
-                populateVoiceRows(context, listLayout, pickerDialog, lang,
-                        fg, rippleColor, speakerRes);
-                scroll.post(() -> scroll.scrollTo(0, previousScrollY));
-                showStatus.run();
-            }
-        });
+        // Show cached voices as soon as they load without blocking the picker.
+        EdgeTtsVoiceRepository.refreshIfNeeded(context, updateVoices);
         showStatus.run();
     }
 

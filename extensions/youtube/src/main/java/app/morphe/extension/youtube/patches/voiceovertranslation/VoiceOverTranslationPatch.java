@@ -478,6 +478,16 @@ public class VoiceOverTranslationPatch {
         Utils.verifyOnMainThread();
         if (isLoading) return;
         isLoading = true;
+        if (!Settings.VOT_USE_NATIVE_TTS.get()) {
+            final boolean catalogWasEmpty = VoiceCatalog.resolve(resolveTargetLang(), null) == null;
+            EdgeTtsVoiceRepository.refreshIfNeeded(Utils.getContext(), () -> {
+                if (catalogWasEmpty && VoiceCatalog.resolve(resolveTargetLang(), null) != null) {
+                    lastSpokenIndex = -1;
+                }
+                TTSPrefetcher.triggerRescan();
+                triggerNextSegmentCheck();
+            });
+        }
         final String loadLang = resolveTargetLang();
         final String loadService = Settings.VOT_TRANSLATION_SERVICE.get();
 
