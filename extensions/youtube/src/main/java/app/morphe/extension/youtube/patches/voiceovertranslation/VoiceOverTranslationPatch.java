@@ -239,13 +239,21 @@ public class VoiceOverTranslationPatch {
         if (!Settings.VOT_ENABLED.get() || !sessionEnabled) return;
         if (PlayerType.getCurrent() == PlayerType.INLINE_MINIMAL) return;
         if (!Settings.VOT_USE_NATIVE_TTS.get()) {
-            EdgeTtsVoiceRepository.load(Utils.getContext(), null);
+            final boolean missingVoices = VoiceCatalog.resolve(resolveTargetLang(), null) == null;
+            EdgeTtsVoiceRepository.load(Utils.getContext(), () -> {
+                if (missingVoices && videoId.equals(currentVideoId)
+                        && VoiceCatalog.resolve(resolveTargetLang(), null) != null) {
+                    TTSPrefetcher.triggerRescan();
+                }
+            });
+            if (missingVoices) ensureTts(); // System TTS can speak until Edge voices arrive.
         }
         TTSPrefetcher.updateVideo(videoId, segments);
         loadTranscript(videoId);
 
         // Open the Edge socket in parallel so the first synthesis doesn't pay handshake cost.
-        if (!Settings.VOT_USE_NATIVE_TTS.get()) {
+        if (!Settings.VOT_USE_NATIVE_TTS.get()
+                && VoiceCatalog.resolve(resolveTargetLang(), null) != null) {
             Utils.runOnBackgroundThread(() -> {
                 try {
                     ttsEngine.warmConnection();
@@ -654,7 +662,10 @@ public class VoiceOverTranslationPatch {
         if (TTS_ENGINE_SYSTEM.equals(voice)) {
             ensureTts();
             if (!ttsReady) {
-                Logger.printDebug(() -> "Native TTS not ready, skipping segment");
+                // Recheck this segment after Android finishes initializing its TTS engine.
+                lastSpokenIndex = -1;
+                ttsEndVideoTimeMs = 0;
+                Logger.printDebug(() -> "Native TTS initializing, retry on next video tick");
                 return;
             }
             updateTtsLanguage();
@@ -888,9 +899,10 @@ public class VoiceOverTranslationPatch {
      * @param lang ISO 639 (pt) or BCP 47 (pt-BR).
      */
     private static String resolveVoice(String lang) {
-        return Settings.VOT_USE_NATIVE_TTS.get()
-                ? TTS_ENGINE_SYSTEM
-                : VoiceCatalog.resolve(lang, Settings.VOT_TTS_VOICE_TYPE.get());
+        if (Settings.VOT_USE_NATIVE_TTS.get()) return TTS_ENGINE_SYSTEM;
+        String edgeVoice = VoiceCatalog.resolve(lang, Settings.VOT_TTS_VOICE_TYPE.get());
+        // Do not persist the temporary fallback: retain the user's Edge voice choice.
+        return edgeVoice != null ? edgeVoice : TTS_ENGINE_SYSTEM;
     }
 
     static void notifyHttpError(int statusCode) {

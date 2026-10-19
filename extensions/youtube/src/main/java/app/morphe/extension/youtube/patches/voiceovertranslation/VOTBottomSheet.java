@@ -103,7 +103,7 @@ public final class VOTBottomSheet {
 
         LinearLayout engineRow = makeValueRow(context, fg, str("morphe_vot_tts_voice_type"));
         engineRow.setOnClickListener(v -> showEnginePicker(context, mainRef[0]));
-        EdgeTtsVoiceRepository.load(context, null);
+        EdgeTtsVoiceRepository.load(context, () -> refreshEngineRow(engineRow));
         refreshEngineRow(engineRow);
 
         LinearLayout translationRow = makeValueRow(context, fg, str("morphe_vot_translation_service_title"));
@@ -364,6 +364,8 @@ public final class VOTBottomSheet {
         String selectedValue = Settings.VOT_USE_NATIVE_TTS.get()
                 ? TTS_ENGINE_SYSTEM
                 : VoiceCatalog.resolve(lang, voiceId);
+        // With no cached/online voices, System TTS remains a usable option.
+        if (selectedValue == null) selectedValue = TTS_ENGINE_SYSTEM;
 
         int maleCount = 0;
         int femaleCount = 0;

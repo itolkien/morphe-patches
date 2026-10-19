@@ -53,7 +53,7 @@ final class EdgeTtsVoiceRepository {
 
     private EdgeTtsVoiceRepository() {}
 
-    /** The bundled voices stay usable while the cache or network list is loaded. */
+    /** The cached voices stay usable while the online list is refreshed. */
     static void load(Context context, Runnable onUpdate) {
         if (context == null) return;
         synchronized (LOCK) {
@@ -66,7 +66,6 @@ final class EdgeTtsVoiceRepository {
     }
 
     private static void loadAndRefresh(Context context) {
-        boolean updated = false;
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             if (!cacheLoaded) {
@@ -75,7 +74,7 @@ final class EdgeTtsVoiceRepository {
                 if (cached != null) {
                     try {
                         VoiceCatalog.setAvailableVoices(parse(cached));
-                        updated = true;
+                        notifyListeners(); // Do not wait for a potentially slow network refresh.
                     } catch (Exception ex) {
                         prefs.edit().remove(KEY_CATALOG).remove(KEY_FETCHED_AT).apply();
                         Logger.printDebug(() -> "Ignoring invalid Edge voice cache: " + ex);
@@ -91,25 +90,34 @@ final class EdgeTtsVoiceRepository {
 
             lastAttemptMs = now;
             String json = download();
-            VoiceCatalog.setAvailableVoices(parse(json));
-            updated = true;
-            prefs.edit().putString(KEY_CATALOG, json)
-                    .putLong(KEY_FETCHED_AT, System.currentTimeMillis()).apply();
+            List<VoiceCatalog.Voice> voices = parse(json);
+            // Persist a fully validated response before publishing the new snapshot.
+            if (!prefs.edit().putString(KEY_CATALOG, json)
+                    .putLong(KEY_FETCHED_AT, System.currentTimeMillis()).commit()) {
+                Logger.printDebug(() -> "Could not persist Edge voice catalog");
+            }
+            VoiceCatalog.setAvailableVoices(voices);
+            notifyListeners();
         } catch (Exception ex) {
-            // Keep either the previously cached snapshot or the bundled voices.
+            // Keep the last successfully cached snapshot (or an empty catalog on first run).
             Logger.printDebug(() -> "Edge voice catalog download failed: " + ex);
         } finally {
-            List<Runnable> done;
             synchronized (LOCK) {
                 loading = false;
-                done = new ArrayList<>(callbacks);
                 callbacks.clear();
             }
-            if (updated && !done.isEmpty()) {
-                Utils.runOnMainThread(() -> {
-                    for (Runnable callback : done) callback.run();
-                });
-            }
+        }
+    }
+
+    private static void notifyListeners() {
+        List<Runnable> pending;
+        synchronized (LOCK) {
+            pending = new ArrayList<>(callbacks);
+        }
+        if (!pending.isEmpty()) {
+            Utils.runOnMainThread(() -> {
+                for (Runnable callback : pending) callback.run();
+            });
         }
     }
 
