@@ -131,7 +131,6 @@ public class VoiceOverTranslationPatch {
     private static final String VOT_TEST_ID_PREFIX = "vot_test_";
     private static final String TEST_VIDEO_ID = "test";
     private static final int TEST_SEGMENT_INDEX = -1;
-    private static final long TEST_PREFETCH_WAIT = 500;
 
     static volatile long lastVideoTimeMs;
     // Tracks the latest known position even when paused, unlike lastVideoTimeMs which only
@@ -173,7 +172,6 @@ public class VoiceOverTranslationPatch {
 
     private static boolean isTestSpeaking;
     private static long currentTestId;
-    private static long currentPreloadId;
     private static String lastTestVoiceId = "";
 
     private static final TTSEngine ttsEngine = TTSEngine.INSTANCE;
@@ -480,6 +478,17 @@ public class VoiceOverTranslationPatch {
         Utils.verifyOnMainThread();
         if (isLoading) return;
         isLoading = true;
+        if (!Settings.VOT_USE_NATIVE_TTS.get()) {
+            final boolean catalogWasEmpty = VoiceCatalog.resolve(resolveTargetLang(), null) == null;
+            EdgeTtsVoiceRepository.refreshIfNeeded(Utils.getContext(), () -> {
+                if (!videoId.equals(currentVideoId)) return;
+                if (catalogWasEmpty && VoiceCatalog.resolve(resolveTargetLang(), null) != null) {
+                    lastSpokenIndex = -1;
+                }
+                TTSPrefetcher.triggerRescan();
+                triggerNextSegmentCheck();
+            });
+        }
         final String loadLang = resolveTargetLang();
         final String loadService = Settings.VOT_TRANSLATION_SERVICE.get();
 
@@ -689,7 +698,10 @@ public class VoiceOverTranslationPatch {
                 data = ttsEngine.prefetch(seg.text, voice, lang);
             } catch (Exception ex) {
                 logError(() -> "On-demand synthesis failed for segment " + index, ex);
-                Utils.runOnMainThread(VoiceOverTranslationPatch::triggerNextSegmentCheck);
+                Utils.runOnMainThread(() -> {
+                    ttsEngine.clearBusy(playbackId);
+                    triggerNextSegmentCheck();
+                });
                 return;
             }
             if (data.length > 0) {
@@ -697,19 +709,33 @@ public class VoiceOverTranslationPatch {
             }
             final byte[] finalData = data;
             Utils.runOnMainThread(() -> {
-                if (finalData.length > 0 && playbackId == ttsEngine.getPlaybackId()) {
-                    // Re-read playback speed in case it changed during synthesis.
-                    final float playbackRateNow = rate * VideoInformation.getPlaybackSpeed();
-                    ttsEngine.play(finalData, volume, playbackRateNow, startTimeMsSnapshot, playbackId,
-                            VoiceOverTranslationPatch::triggerNextSegmentCheck);
-                } else {
-                    triggerNextSegmentCheck();
+                if (finalData.length > 0 && playbackId == ttsEngine.getPlaybackId()
+                        && currentVideoId.equals(videoIdSnapshot)
+                        && voice.equals(resolveVoice(resolveTargetLang()))
+                        && VideoState.getCurrent() == VideoState.PLAYING) {
+                    final long nowMs = VideoInformation.getVideoTime();
+                    if (nowMs >= seg.playbackStartMs && nowMs < seg.playbackEndMs) {
+                        final long remainingAudioMs = Math.max(0,
+                                TTSEngine.mp3DurationMs(finalData.length) - startTimeMsSnapshot);
+                        // Recalculate after synthesis; speed up instead of skipping words.
+                        final float adjustedRate = calculateSpeechRate(remainingAudioMs,
+                                seg.playbackEndMs - nowMs);
+                        currentTtsBaseRate = adjustedRate;
+                        lastAppliedPlaybackSpeed = VideoInformation.getPlaybackSpeed();
+                        ttsEndVideoTimeMs = nowMs + (long) (remainingAudioMs / adjustedRate);
+                        ttsEngine.play(finalData, volume,
+                                adjustedRate * lastAppliedPlaybackSpeed, startTimeMsSnapshot, playbackId,
+                                VoiceOverTranslationPatch::triggerNextSegmentCheck);
+                        return;
+                    }
                 }
+                ttsEngine.clearBusy(playbackId);
+                triggerNextSegmentCheck();
             });
         });
     }
 
-    private static void triggerNextSegmentCheck() {
+    static void triggerNextSegmentCheck() {
         Utils.runOnMainThreadNowOrLater(() -> {
             if (VideoState.getCurrent() == VideoState.PLAYING) {
                 videoTimeChanged(VideoInformation.getVideoTime());
@@ -831,6 +857,10 @@ public class VoiceOverTranslationPatch {
 
         final String lang = resolveTargetLang();
         byte[] cached = TTSCache.get(TEST_VIDEO_ID, TEST_SEGMENT_INDEX, voiceId, lang, getTestString());
+        if (cached == null) {
+            cached = TTSCache.getTestSampleFromDisk(voiceId, lang);
+            if (cached != null) TTSCache.put(TEST_VIDEO_ID, TEST_SEGMENT_INDEX, voiceId, lang, getTestString(), cached);
+        }
         if (cached != null) {
             PlayerVolumePatch.setDuckMultiplier(Settings.VOT_ORIGINAL_AUDIO_VOLUME.get() / 100.0f);
             final long id = ttsEngine.markBusy();
@@ -845,52 +875,6 @@ public class VoiceOverTranslationPatch {
     private static void updateIsTestSpeaking(long testId) {
         Utils.verifyOnMainThread();
         if (testId == currentTestId) isTestSpeaking = false;
-    }
-
-    /**
-     * Preloads test phrases for all Edge TTS voices in the current target language.
-     */
-    static void preloadTestVoices() {
-        Utils.verifyOnMainThread();
-        final long preloadId = ++currentPreloadId;
-
-        String lang = resolveTargetLang();
-        List<VoiceCatalog.Voice> voices = VoiceCatalog.getVoicesForLang(lang);
-        if (voices == null || voices.isEmpty()) return;
-
-        Utils.runOnBackgroundThread(() -> {
-            String testString = getTestString();
-            for (VoiceCatalog.Voice voice : voices) {
-                if (preloadId != currentPreloadId) {
-                    Logger.printDebug(() -> "Aborting stale preload request: " + preloadId);
-                    return;
-                }
-
-                if (TTSCache.get(TEST_VIDEO_ID, TEST_SEGMENT_INDEX, voice.id, lang, testString) != null) {
-                    continue;
-                }
-
-                byte[] diskData = TTSCache.getTestSampleFromDisk(voice.id, lang);
-                if (diskData != null) {
-                    TTSCache.put(TEST_VIDEO_ID, TEST_SEGMENT_INDEX, voice.id, lang, testString, diskData);
-                    continue;
-                }
-
-                try {
-                    Logger.printDebug(() -> "Prefetching test phrase for: " + voice.id);
-                    byte[] data = ttsEngine.prefetch(testString, voice.id, lang);
-                    if (data.length > 0) {
-                        TTSCache.put(TEST_VIDEO_ID, TEST_SEGMENT_INDEX, voice.id, lang, testString, data);
-                        TTSCache.putTestSampleToDisk(voice.id, lang, data);
-                    }
-                    Thread.sleep(TEST_PREFETCH_WAIT);
-
-                } catch (Exception ex) {
-                    logError(() -> "preloadTestVoices failure: " + voice, ex);
-                    return;
-                }
-            }
-        });
     }
 
     private static void stopTts() {

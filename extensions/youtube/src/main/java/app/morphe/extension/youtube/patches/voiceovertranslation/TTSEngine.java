@@ -23,7 +23,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -57,12 +56,11 @@ final class TTSEngine {
 
     public static final TTSEngine INSTANCE = new TTSEngine();
 
-    private static final String WS_HOST            = "speech.platform.bing.com";
+    private static final String WS_HOST            = EdgeTtsConfig.HOST;
     private static final int    WS_PORT            = 443;
-    private static final String TOKEN              = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+    private static final String TOKEN              = EdgeTtsConfig.TRUSTED_CLIENT_TOKEN;
     private static final String AUDIO_FORMAT       = "audio-24khz-48kbitrate-mono-mp3";
-    // Keep in sync with the Edge browser version used in the User-Agent below.
-    private static final String SEC_MS_GEC_VERSION = "1-143.0.3650.75";
+    private static final String SEC_MS_GEC_VERSION = EdgeTtsConfig.SEC_MS_GEC_VERSION;
 
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS    = 20_000;
@@ -95,14 +93,17 @@ final class TTSEngine {
     private final Object synthesisLock = new Object();
     @GuardedBy("synthesisLock")
     private long lastSynthesisEndMs;
-    @GuardedBy("synthesisLock")
-    private SSLSocket persistentSocket;
+    // Written under synthesisLock; also read by stop() to cancel an active request.
+    private volatile SSLSocket persistentSocket;
     @GuardedBy("synthesisLock")
     private InputStream persistentIn;
     @GuardedBy("synthesisLock")
     private OutputStream persistentOut;
     @GuardedBy("synthesisLock")
     private boolean configSent;
+    @GuardedBy("synthesisLock")
+    private String socketVoice;
+    private volatile long synthesisVersion;
 
     private TTSEngine() {}
 
@@ -122,6 +123,7 @@ final class TTSEngine {
         Utils.runOnBackgroundThread(() -> {
             try {
                 byte[] data = prefetch(text, voiceId, lang);
+                if (data.length > 0) TTSCache.putTestSampleToDisk(voiceId, lang, data);
                 Utils.runOnMainThread(() -> {
                     if (data.length > 0 && !stopped && id == playbackId) {
                         play(data, volume, VideoInformation.getPlaybackSpeed(), 0, id, onDone);
@@ -313,6 +315,11 @@ final class TTSEngine {
         }
         stopped = true;
         speaking = false;
+        synthesisVersion++;
+        SSLSocket active = persistentSocket;
+        if (active != null) Utils.runOnBackgroundThread(() -> {
+            try { active.close(); } catch (IOException ignored) {}
+        });
 
         // Unblock latch.await() in playMp3() so the thread exits quickly.
         if (playLatch != null) {
@@ -472,46 +479,74 @@ final class TTSEngine {
 
     private byte[] synthesizeEdge(String text, String voice, String lang) throws Exception {
         Utils.verifyOffMainThread();
+        final long version = synthesisVersion;
         synchronized (synthesisLock) {
             IOException lastEx = null;
             for (int attempt = 1; attempt <= 2; attempt++) {
+                if (version != synthesisVersion) return new byte[0];
+                String stage = "connect";
+                long startedAt = System.currentTimeMillis();
                 try {
                     String timestamp = edgeTimestamp();
                     String requestId = uuidHex();
                     String ssml = buildSsml(text, voice, lang);
 
-                    // Ensure we have a valid connection.
+                    // A voice change gets a fresh WebSocket session.
+                    if (persistentSocket != null && !voice.equals(socketVoice)) {
+                        closeSocket();
+                    }
                     ensureConnected();
+                    if (version != synthesisVersion) {
+                        closeSocket();
+                        return new byte[0];
+                    }
+                    socketVoice = voice;
 
                     final boolean needsConfig = !configSent;
                     if (needsConfig) configSent = true;
 
                     // speech.config only needs to be sent once per connection.
                     if (needsConfig) {
+                        stage = "send_config";
                         sendText(persistentOut, "Path: speech.config\r\n"
                                 + "Content-Type: application/json; charset=utf-8\r\n"
                                 + "X-Timestamp: " + timestamp + "\r\n\r\n"
                                 + "{\"context\":{\"synthesis\":{\"audio\":{"
                                 + "\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\","
                                 + "\"wordBoundaryEnabled\":\"false\"},"
-                                + "\"outputFormat\":\"" + AUDIO_FORMAT + "\"}}}}");
+                                + "\"outputFormat\":\"" + AUDIO_FORMAT + "\"}}}}\r\n");
                     }
 
-                    sendText(persistentOut, "Path: ssml\r\n"
-                            + "X-RequestId: " + requestId + "\r\n"
-                            + "X-Timestamp: " + timestamp + "\r\n"
-                            + "Content-Type: application/ssml+xml\r\n\r\n" + ssml);
+                    stage = "send_ssml";
+                    sendText(persistentOut, "X-RequestId:" + requestId + "\r\n"
+                            + "Content-Type:application/ssml+xml\r\n"
+                            + "X-Timestamp:" + timestamp + "Z\r\n"
+                            + "Path:ssml\r\n\r\n" + ssml);
 
                     // Collect audio frames until the server signals turn.end.
                     ByteArrayOutputStream audioOut = new ByteArrayOutputStream();
+                    stage = "read_audio";
                     collectAudio(persistentIn, audioOut);
+                    if (version != synthesisVersion) {
+                        closeSocket();
+                        return new byte[0];
+                    }
+                    if (audioOut.size() == 0) {
+                        throw new IOException("Edge TTS returned an empty audio response");
+                    }
 
                     lastSynthesisEndMs = System.currentTimeMillis();
                     return audioOut.toByteArray();
                 } catch (IOException ex) {
                     closeSocket();
+                    if (version != synthesisVersion) return new byte[0];
                     lastEx = ex;
-                    Logger.printDebug(() -> "TTS synthesis failed, retrying... ", ex);
+                    final String failedStage = stage;
+                    final int failedAttempt = attempt;
+                    final long elapsedMs = System.currentTimeMillis() - startedAt;
+                    Logger.printDebug(() -> "Edge TTS failed at " + failedStage
+                            + " (attempt " + failedAttempt + "/2, voice=" + voice
+                            + ", elapsed=" + elapsedMs + "ms)", ex);
                 }
             }
             throw lastEx;
@@ -519,10 +554,13 @@ final class TTSEngine {
     }
 
     private String buildSsml(String text, String voice, String lang) {
-        String speakLang = lang != null && !lang.isEmpty() ? lang : localePart(voice);
+        // Edge only accepts SSML in its own browser-generated format.
         return "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis'"
-                + " xml:lang='" + speakLang + "'>"
-                + "<voice name='" + voice + "'>" + escapeXml(text) + "</voice></speak>";
+                + " xml:lang='en-US'>"
+                + "<voice name='" + voice + "'>"
+                + "<prosody pitch='+0Hz' rate='+0%' volume='+0%'>"
+                + escapeXml(text)
+                + "</prosody></voice></speak>";
     }
 
     /**
@@ -538,11 +576,10 @@ final class TTSEngine {
             closeSocket();
         }
 
-        String secMsGec     = genSecMsGec();
-        String connectionId = uuidHex();
+        String secMsGec = EdgeTtsV2Token.generate(System.currentTimeMillis(), TOKEN);
         String path = "/consumer/speech/synthesize/readaloud/edge/v1"
                 + "?TrustedClientToken=" + TOKEN
-                + "&ConnectionId=" + connectionId
+                + "&ConnectionId=" + uuidHex()
                 + "&Sec-MS-GEC=" + secMsGec
                 + "&Sec-MS-GEC-Version=" + SEC_MS_GEC_VERSION;
 
@@ -577,6 +614,7 @@ final class TTSEngine {
             persistentOut    = null;
             configSent       = false;
         }
+        socketVoice = null;
     }
 
     private void sendHttpUpgrade(SSLSocket socket, String path) throws IOException {
@@ -592,8 +630,7 @@ final class TTSEngine {
                 + "Sec-WebSocket-Version: 13\r\n"
                 + "Origin: chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold\r\n"
                 + "Accept-Language: en-US,en;q=0.9\r\n"
-                + "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                + " (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0\r\n"
+                + "User-Agent: " + EdgeTtsConfig.USER_AGENT + "\r\n"
                 + "Cookie: muid=" + muid + "\r\n"
                 + "\r\n";
         OutputStream out = socket.getOutputStream();
@@ -647,7 +684,10 @@ final class TTSEngine {
      * them and append the rest to {@code audioOut}.
      */
     private void collectAudio(InputStream in, ByteArrayOutputStream audioOut) throws IOException {
+        ByteArrayOutputStream fragments = null;
+        int fragmentOpcode = 0;
         for (int b0, b1; (b0 = in.read()) >= 0 && (b1 = in.read()) >= 0; ) {
+            boolean fin    = (b0 & 0x80) != 0;
             int  opcode     = b0 & 0x0F;
             boolean masked  = (b1 & 0x80) != 0;
             long payloadLen = b1 & 0x7F;
@@ -659,6 +699,7 @@ final class TTSEngine {
                 for (int i = 0; i < 8; i++) payloadLen = (payloadLen << 8) | (in.read() & 0xFF);
             }
 
+            if (payloadLen > 8 * 1024 * 1024) throw new IOException("WebSocket frame too large");
             byte[] maskBytes = null;
             if (masked) {
                 maskBytes = new byte[4];
@@ -671,10 +712,35 @@ final class TTSEngine {
                 for (int i = 0; i < payload.length; i++) payload[i] ^= maskBytes[i % 4];
             }
 
-            if (opcode == 0x8) break; // close frame
+            // Reassemble fragmented text/audio messages before interpreting their payload.
+            if (opcode == 0x0) {
+                if (fragments == null) throw new IOException("Unexpected WebSocket continuation");
+                if (fragments.size() + payload.length > 8 * 1024 * 1024)
+                    throw new IOException("WebSocket message too large");
+                fragments.write(payload);
+                if (!fin) continue;
+                payload = fragments.toByteArray();
+                opcode = fragmentOpcode;
+                fragments = null;
+            } else if (opcode == 0x1 || opcode == 0x2) {
+                if (fragments != null) throw new IOException("Unexpected WebSocket data frame");
+                if (!fin) {
+                    fragments = new ByteArrayOutputStream();
+                    fragments.write(payload);
+                    fragmentOpcode = opcode;
+                    continue;
+                }
+            }
+            if (opcode == 0x8) {
+                int code = payload.length >= 2 ? ((payload[0] & 0xFF) << 8) | (payload[1] & 0xFF) : -1;
+                throw new IOException("Edge TTS WebSocket closed before turn.end (code=" + code + ")");
+            }
 
             if (opcode == 0x1) { // text frame
-                if (new String(payload, StandardCharsets.UTF_8).contains("Path:turn.end")) break;
+                if (new String(payload, StandardCharsets.UTF_8).contains("Path:turn.end")) {
+                    // A completed turn is a normal successful response.
+                    return;
+                }
             } else if (opcode == 0x2 && payload.length > 2) { // binary audio frame
                 // First 2 bytes encode the header length; audio data starts after the header.
                 int headerLen  = ((payload[0] & 0xFF) << 8) | (payload[1] & 0xFF);
@@ -683,8 +749,9 @@ final class TTSEngine {
                     audioOut.write(payload, audioStart, payload.length - audioStart);
                 }
             }
-            // opcode 0x0 (continuation), 0x9 (ping), 0xA (pong) - ignored
+            // Ping/pong control frames do not carry audio.
         }
+        throw new IOException("Edge TTS WebSocket ended before turn.end");
     }
 
     private void readFully(InputStream in, byte[] buf) throws IOException {
@@ -795,29 +862,6 @@ final class TTSEngine {
         });
     }
 
-    /**
-     * Generates the Sec-MS-GEC DRM token required by the Edge TTS WebSocket endpoint.
-     * Algorithm: current time → Windows FILETIME ticks, rounded to 5 minutes,
-     * concatenated with the trusted client token, SHA-256 hashed.
-     */
-    private static String genSecMsGec() throws Exception {
-        // Windows FILETIME epoch offset: 100-nanosecond ticks from 1601-01-01 to 1970-01-01.
-        final long EPOCH_OFFSET_TICKS = 116_444_736_000_000_000L;
-        // 5 minutes expressed in 100-nanosecond ticks.
-        final long FIVE_MIN_TICKS     = 3_000_000_000L;
-
-        final long ticks   = System.currentTimeMillis() * 10_000L + EPOCH_OFFSET_TICKS;
-        final long rounded = ticks - (ticks % FIVE_MIN_TICKS);
-
-        String input = (rounded + TOKEN).toUpperCase(Locale.US);
-        MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
-        byte[] hash = sha256.digest(input.getBytes(StandardCharsets.UTF_8));
-
-        StringBuilder sb = new StringBuilder(64);
-        for (byte b : hash) sb.append(String.format("%02X", b));
-        return sb.toString();
-    }
-
     /** Extract locale portion from a voice name, e.g. "uk-UA-OstapNeural" → "uk-UA". */
     private static String localePart(String voice) {
         final int third = voice.indexOf('-', voice.indexOf('-') + 1);
@@ -825,7 +869,9 @@ final class TTSEngine {
     }
 
     private static String edgeTimestamp() {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
+        SimpleDateFormat sdf = new SimpleDateFormat(
+                "EEE MMM dd yyyy HH:mm:ss 'GMT+0000 (Coordinated Universal Time)'",
+                Locale.US);
         sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
         return sdf.format(new Date());
     }

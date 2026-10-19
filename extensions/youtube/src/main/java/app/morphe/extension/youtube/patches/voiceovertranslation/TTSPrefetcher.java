@@ -67,10 +67,10 @@ final class TTSPrefetcher {
         synchronized (lock) {
             if (!videoId.equals(currentVideoId)) {
                 loadingLatch = new CountDownLatch(1);
+                currentVideoTimeMs = 0;
             }
             currentVideoId = videoId;
             currentSegments = Collections.unmodifiableList(segments);
-            currentVideoTimeMs = 0;
             if (running) {
                 lock.notifyAll();
             } else {
@@ -126,6 +126,8 @@ final class TTSPrefetcher {
     private static void runPrefetchLoop() {
         long lastFetchTimeMs = 0;
         String lastVideoId = "";
+        String lastVoice = null;
+        long deferUntilMs = 0;
 
         while (!Thread.currentThread().isInterrupted()) {
             String videoId;
@@ -155,6 +157,19 @@ final class TTSPrefetcher {
 
             if (voice == null) {
                 if (waitOnLock(DELAY_IDLE_MS)) return;
+                continue;
+            }
+
+            if (!voice.equals(lastVoice)) {
+                // Give the current on-demand segment priority after a voice change.
+                deferUntilMs = lastVoice == null ? 0 : System.currentTimeMillis() + 3_000;
+                lastVoice = voice;
+                lastFetchTimeMs = 0;
+                synchronized (lock) { currentBackoffMs = 0; }
+            }
+            long deferMs = deferUntilMs - System.currentTimeMillis();
+            if (deferMs > 0) {
+                if (waitOnLock(deferMs)) return;
                 continue;
             }
 
@@ -197,6 +212,8 @@ final class TTSPrefetcher {
                     continue;
                 }
 
+                // Voice may have changed while we were waiting for a prefetch slot.
+                if (!voice.equals(VoiceCatalog.resolve(voiceLang, Settings.VOT_TTS_VOICE_TYPE.get()))) continue;
                 final boolean success = fetch(videoId, segments.get(next.index),
                         next.index, segments.size(), voice, voiceLang);
                 lastFetchTimeMs = System.currentTimeMillis();
