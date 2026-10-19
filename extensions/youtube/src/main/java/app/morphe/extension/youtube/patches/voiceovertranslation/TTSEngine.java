@@ -104,6 +104,8 @@ final class TTSEngine {
     private volatile long synthesisGeneration;
     // Published only during synthesis/handshake; closing it interrupts a superseded request.
     private volatile SSLSocket inFlightSocket;
+    // A delayed socket close must never interrupt a later request reusing that socket.
+    private volatile boolean reconnectAfterCancellation;
 
     static final class SynthesisCancelledException extends IOException {
         SynthesisCancelledException() {
@@ -227,6 +229,7 @@ final class TTSEngine {
         synthesisGeneration++;
         SSLSocket socket = inFlightSocket;
         if (socket != null) {
+            reconnectAfterCancellation = true;
             Utils.runOnBackgroundThread(() -> {
                 try { socket.close(); } catch (IOException ignored) {}
             });
@@ -585,6 +588,10 @@ final class TTSEngine {
     @GuardedBy("synthesisLock")
     private void ensureConnected() throws Exception {
         Utils.verifyOffMainThread();
+        if (reconnectAfterCancellation) {
+            reconnectAfterCancellation = false;
+            closeSocket();
+        }
         if (persistentSocket != null && !persistentSocket.isClosed()) {
             // Proactively close the socket if it has been idle long enough for the
             // server to have dropped it; avoids a "Connection reset" on the first send.
