@@ -101,6 +101,8 @@ final class TTSEngine {
     private OutputStream persistentOut;
     @GuardedBy("synthesisLock")
     private boolean configSent;
+    @GuardedBy("synthesisLock")
+    private String socketVoice;
 
     private TTSEngine() {}
 
@@ -478,8 +480,12 @@ final class TTSEngine {
                     String requestId = uuidHex();
                     String ssml = buildSsml(text, voice, lang);
 
-                    // Ensure we have a valid connection.
+                    // A voice change gets a fresh WebSocket session.
+                    if (persistentSocket != null && !voice.equals(socketVoice)) {
+                        closeSocket();
+                    }
                     ensureConnected();
+                    socketVoice = voice;
 
                     final boolean needsConfig = !configSent;
                     if (needsConfig) configSent = true;
@@ -503,6 +509,9 @@ final class TTSEngine {
                     // Collect audio frames until the server signals turn.end.
                     ByteArrayOutputStream audioOut = new ByteArrayOutputStream();
                     collectAudio(persistentIn, audioOut);
+                    if (audioOut.size() == 0) {
+                        throw new IOException("Edge TTS returned an empty audio response");
+                    }
 
                     lastSynthesisEndMs = System.currentTimeMillis();
                     return audioOut.toByteArray();
@@ -574,6 +583,7 @@ final class TTSEngine {
             persistentOut    = null;
             configSent       = false;
         }
+        socketVoice = null;
     }
 
     private void sendHttpUpgrade(SSLSocket socket, String path) throws IOException {
@@ -667,7 +677,9 @@ final class TTSEngine {
                 for (int i = 0; i < payload.length; i++) payload[i] ^= maskBytes[i % 4];
             }
 
-            if (opcode == 0x8) break; // close frame
+            if (opcode == 0x8) {
+                throw new IOException("Edge TTS WebSocket closed before turn.end");
+            }
 
             if (opcode == 0x1) { // text frame
                 if (new String(payload, StandardCharsets.UTF_8).contains("Path:turn.end")) break;
@@ -681,6 +693,7 @@ final class TTSEngine {
             }
             // opcode 0x0 (continuation), 0x9 (ping), 0xA (pong) - ignored
         }
+        throw new IOException("Edge TTS WebSocket ended before turn.end");
     }
 
     private void readFully(InputStream in, byte[] buf) throws IOException {
