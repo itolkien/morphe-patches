@@ -36,7 +36,7 @@ Second \"item\" text"</string>
   <string name="morphe_screen_layout_title">Oppsett</string>
   <string name="morphe_copy_text_title">Kopier tekst</string>
   <string name="morphe_copy_text_summary">Tillater markering og kopiering av tekst i innlegg og kommentarer. Deaktiverer sammenlegging av kommentarer</string>
-  <string name="morphe_copy_text_user_dialog_message">Å kollapse kommentarer vil slutte å fungere mens Kopier tekst er aktivert.</string>
+  <string name="morphe_copy_text_user_dialog_message">Når du slår av kollapsing av kommentarer, vil \"Kopier tekst\"-funksjonen være aktiv</string>
   <string name="morphe_custom_font_title">Egendefinert font</string>
   <string name="morphe_custom_font_summary">Last inn en egendefinert TTF- eller OTF-fontfil fra banen nedenfor. Å aktivere dette slår også av bruk av systemfont.</string>
   <string name="morphe_custom_font_file_path_title">Egendefinert fontfil</string>
@@ -58,6 +58,9 @@ Second \"item\" text"</string>
   <string name="morphe_hide_trending_shelves_summary">Skjuler \"Trending\"-hyllene fra feeden og søkeforslag</string>
   <string name="morphe_remove_notification_dialog_title">Fjern varslingsforslagsdialog</string>
   <string name="morphe_remove_notification_dialog_summary">Lukker automatisk dialogboksen for forslag til varsler når du besøker en subreddit</string>
+  <string name="morphe_show_flairs_in_home_feed_title">Vis flairs i startfeed</string>
+  <string name="morphe_show_flairs_in_home_feed_summary">Vis innleggsmerker i startfeeden</string>
+  <string name="morphe_show_flairs_in_home_feed_user_dialog_message">Noen oppføringer i feeden kan ikke vise en flair</string>
   <string name="morphe_show_view_count_title">Vis antall visninger på innlegg</string>
   <string name="morphe_show_view_count_summary">Begrensning: Kun tilgjengelig hvis API-responsen inkluderer antall visninger</string>
   <string name="morphe_flip_post_action_bar_title">Vend handlingslinjen for innlegg</string>
@@ -81,6 +84,10 @@ Second \"item\" text"</string>
   <string name="morphe_keep_feed_position_summary">Beholder feeden på samme posisjon etter at du lukker et innlegg, et bilde eller en video, i stedet for å flytte det åpnede innlegget til toppen</string>
   <string name="morphe_feed_media_max_height_title">Maks. høyde for feedmedier</string>
   <string name="morphe_feed_media_max_height_summary">Maksimal høyde for bilder, videoer og gallerier i feeden, som et multiplum av bredden deres. Medier som er høyere, blir beskåret. 1,33 er Reddits standard</string>
+  <string name="morphe_redgifs_audio_title">Spill Redgifs med lyd</string>
+  <string name="morphe_redgifs_audio_summary">Spiller den opprinnelige Redgifs-videoen i stedet for Reddit sin kopi, som ofte mangler lyd</string>
+  <string name="morphe_redgifs_hd_title">Redgifs HD-kvalitet</string>
+  <string name="morphe_redgifs_hd_summary">Spiller Redgifs-videoer i HD. HD-videoer er større og kan pauses for å laste</string>
   <string name="morphe_hide_media_viewer_overlay_title">Skjul overlegg i medievisningen</string>
   <string name="morphe_hide_media_viewer_overlay_summary">Skjuler tittelen, knappene og videokontrollene når du åpner et bilde eller en video. Trykk på mediet for å vise dem</string>
   <string name="morphe_hide_join_conversation_button_title">Skjul Se samtalen-knappen</string>

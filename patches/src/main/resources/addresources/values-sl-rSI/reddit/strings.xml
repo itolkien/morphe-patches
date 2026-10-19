@@ -36,7 +36,7 @@ Second \"item\" text"</string>
   <string name="morphe_screen_layout_title">Postavitev</string>
   <string name="morphe_copy_text_title">Kopiraj besedilo</string>
   <string name="morphe_copy_text_summary">Omogoča izbiro in kopiranje besedila v objavah in komentarjih. Onemogoči strnjevanje komentarjev</string>
-  <string name="morphe_copy_text_user_dialog_message">Strnjevanje komentarjev ne bo delovalo, dokler je omogočeno kopiranje besedila.</string>
+  <string name="morphe_copy_text_user_dialog_message">Strjevanje komentarjev bo prenehalo delovati, ko je omogočeno Kopiraj besedilo</string>
   <string name="morphe_custom_font_title">Poželjna pisava</string>
   <string name="morphe_custom_font_summary">Naložite datoteko pisave TTF ali OTF po spodnji poti. Omogočanje te možnosti onemogoči tudi možnost uporabe sistemske pisave.</string>
   <string name="morphe_custom_font_file_path_title">Datoteka s pożyelnjo pisavo</string>
@@ -58,6 +58,9 @@ Second \"item\" text"</string>
   <string name="morphe_hide_trending_shelves_summary">Skrije priljubljene police iz vira in predlogov iskanja</string>
   <string name="morphe_remove_notification_dialog_title">Odstrani dialog za predlog obvestil</string>
   <string name="morphe_remove_notification_dialog_summary">Samodejno skrije okno z obvestili, ko obiščete subreddit.</string>
+  <string name="morphe_show_flairs_in_home_feed_title">Prikaži osebna označevanja v domačem viru</string>
+  <string name="morphe_show_flairs_in_home_feed_summary">V domačem viru prikaže oznake za postane</string>
+  <string name="morphe_show_flairs_in_home_feed_user_dialog_message">Nekateri elementi vira morda ne prikazujejo osebne označevanja</string>
   <string name="morphe_show_view_count_title">Prikaži število ogledov na objavah</string>
   <string name="morphe_show_view_count_summary">Omejitev: Na voljo samo, če odziv API vključuje število ogledov</string>
   <string name="morphe_flip_post_action_bar_title">Obrni vrstico dejanj objave</string>
@@ -81,6 +84,10 @@ Second \"item\" text"</string>
   <string name="morphe_keep_feed_position_summary">Po zaprtju objave, slike ali videoposnetka ohrani vir na istem položaju, namesto da odprto objavo premakne na vrh</string>
   <string name="morphe_feed_media_max_height_title">Največja višina medijev v viru</string>
   <string name="morphe_feed_media_max_height_summary">Največja višina slik, videoposnetkov in galerij v viru, kot večkratnik njihove širine. Višji mediji so obrezani. 1,33 je Redditova privzeta vrednost</string>
+  <string name="morphe_redgifs_audio_title">Predvajaj Redgifs z zvokom</string>
+  <string name="morphe_redgifs_audio_summary">Predvaja izvirni video Redgifs namesto kopije Reddit, ki pogosto nima zvoka</string>
+  <string name="morphe_redgifs_hd_title">Kakovost HD Redgifs</string>
+  <string name="morphe_redgifs_hd_summary">Predvaja video Redgifs v HD kakovosti. Videi v HD so večji in se lahko zaustavijo za nalaganje</string>
   <string name="morphe_hide_media_viewer_overlay_title">Skrij prekrivni element v pregledovalniku medijev</string>
   <string name="morphe_hide_media_viewer_overlay_summary">Skrije naslov, gumbe in video kontrole ob odpiranju slike ali videa. Dotaknite se medija, da se prikažejo</string>
   <string name="morphe_hide_join_conversation_button_title">Skrij gumb »Poglej pogovor«</string>

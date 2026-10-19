@@ -36,7 +36,7 @@ Second \"item\" text"</string>
   <string name="morphe_screen_layout_title">Layout</string>
   <string name="morphe_copy_text_title">Tekst kopiëren</string>
   <string name="morphe_copy_text_summary">Hiermee kun je tekst in berichten en reacties selecteren en kopiëren. Schakelt het samenvouwen van reacties uit</string>
-  <string name="morphe_copy_text_user_dialog_message">Het inklappen van reacties stopt met werken terwijl Tekst kopiëren is ingeschakeld.</string>
+  <string name="morphe_copy_text_user_dialog_message">Het samenvouwen van reacties werkt niet meer wanneer Tekst kopiëren is ingeschakeld</string>
   <string name="morphe_custom_font_title">Aangepast lettertype</string>
   <string name="morphe_custom_font_summary">Laad een aangepast TTF- of OTF-lettertypebestand vanaf het pad hieronder. Door dit in te schakelen, wordt ook het systeemlettertype geforceerd uitgeschakeld.</string>
   <string name="morphe_custom_font_file_path_title">Aangepast lettertypebestand</string>
@@ -58,6 +58,9 @@ Second \"item\" text"</string>
   <string name="morphe_hide_trending_shelves_summary">Verbergt de Trending planken van de feed en zoekopdrachten</string>
   <string name="morphe_remove_notification_dialog_title">Verwijder notificatie suggestie dialoog</string>
   <string name="morphe_remove_notification_dialog_summary">Sluit de suggestiedialoog voor meldingen automatisch wanneer je een subreddit bezoekt</string>
+  <string name="morphe_show_flairs_in_home_feed_title">Flairs in het startscherm weergeven</string>
+  <string name="morphe_show_flairs_in_home_feed_summary">Toont post-flair-emblemen in het startscherm</string>
+  <string name="morphe_show_flairs_in_home_feed_user_dialog_message">Sommige items in de feed hebben mogelijk geen flair</string>
   <string name="morphe_show_view_count_title">Toon het aantal weergaven op berichten</string>
   <string name="morphe_show_view_count_summary">Beperking: alleen beschikbaar als het API-antwoord het aantal weergaven bevat</string>
   <string name="morphe_flip_post_action_bar_title">Actiebalk van berichten omdraaien</string>
@@ -81,6 +84,10 @@ Second \"item\" text"</string>
   <string name="morphe_keep_feed_position_summary">Houdt de feed op dezelfde positie na het sluiten van een bericht, afbeelding of video, in plaats van het geopende bericht naar boven te verplaatsen</string>
   <string name="morphe_feed_media_max_height_title">Maximale hoogte van feedmedia</string>
   <string name="morphe_feed_media_max_height_summary">Maximale hoogte van afbeeldingen, video\'s en galerijen in de feed, als een veelvoud van hun breedte. Hogere media worden bijgesneden. 1,33 is de standaard van Reddit</string>
+  <string name="morphe_redgifs_audio_title">Redgifs afspelen met audio</string>
+  <string name="morphe_redgifs_audio_summary">Afspelen van de originele Redgifs-video in plaats van de versie op Reddit, die vaak geen audio bevat</string>
+  <string name="morphe_redgifs_hd_title">Redgifs HD-kwaliteit</string>
+  <string name="morphe_redgifs_hd_summary">HD-Redgifs-video\'s afspelen. HD-video\'s zijn groter en kunnen onderbroken worden om te laden</string>
   <string name="morphe_hide_media_viewer_overlay_title">Mediaviewer-overlay verbergen</string>
   <string name="morphe_hide_media_viewer_overlay_summary">Verbergt de titel, knoppen en videobediening bij het openen van een afbeelding of video. Tik op de media om ze te tonen</string>
   <string name="morphe_hide_join_conversation_button_title">Verberg de knop \"Bekijk het gesprek\"</string>
