@@ -34,9 +34,9 @@ private const val EXTENSION_CLASS =
 private const val EXTENSION_SUBTITLE_MANAGER_INTERFACE =
     $$"Lapp/morphe/extension/youtube/patches/PreferredCaptionLanguagePatch$SubtitleManagerInterface;"
 private const val EXTENSION_CAPTION_TRACK_INTERFACE =
-    $"Lapp/morphe/extension/youtube/patches/PreferredCaptionLanguagePatch$CaptionTrackInterface;"
+    $$"Lapp/morphe/extension/youtube/patches/PreferredCaptionLanguagePatch$CaptionTrackInterface;"
 private const val NATIVE_CAPTION_TRACK_DESCRIPTOR =
-    $"Lapp/morphe/extension/youtube/patches/captions/CaptionTranslationList$CaptionTrack;"
+    $$"Lapp/morphe/extension/youtube/patches/captions/CaptionTranslationList$CaptionTrack;"
 
 internal val preferredCaptionLanguagePatch = bytecodePatch(
     description = "Adds an option to automatically select captions in your preferred language " +
