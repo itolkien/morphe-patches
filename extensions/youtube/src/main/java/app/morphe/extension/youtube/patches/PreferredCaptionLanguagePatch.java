@@ -17,6 +17,7 @@ import app.morphe.extension.shared.Logger;
 import app.morphe.extension.shared.Utils;
 import app.morphe.extension.shared.requests.Requester;
 import app.morphe.extension.youtube.settings.Settings;
+import app.morphe.extension.youtube.patches.captions.NativeTranslationBridge;
 
 @SuppressWarnings("unused")
 public class PreferredCaptionLanguagePatch {
@@ -40,6 +41,13 @@ public class PreferredCaptionLanguagePatch {
         @Nullable
         List<CaptionTrackInterface> patch_getAutoTranslateCaptionTracks();
 
+        @Nullable
+        CaptionTrackInterface patch_getDefaultCaptionSource();
+
+        boolean patch_usesNativeCaptionRouting();
+
+        @Nullable
+        Object patch_getEligibleTranslationSource();
     }
 
     /**
@@ -142,10 +150,13 @@ public class PreferredCaptionLanguagePatch {
                 return recordProgrammaticSelection(nativeTrack);
             }
 
-            // Priority 2: YouTube's current-audio translation menu already includes
-            // the extra validated targets when Universal Captions is enabled.
+            // Priority 2: native translations, then a source-specific fallback.
+            // Unverified versions use Morphe's previous fallback unchanged.
             CaptionTrackInterface translated = findAutoTranslatedTrack(
-                    subtitleManager.patch_getAutoTranslateCaptionTracks(), targetLang);
+                    directTracks, subtitleManager.patch_getAutoTranslateCaptionTracks(),
+                    subtitleManager.patch_getDefaultCaptionSource(), targetLang, Requester.getAppLocale(),
+                    subtitleManager.patch_usesNativeCaptionRouting(),
+                    subtitleManager.patch_getEligibleTranslationSource());
             if (translated != null) return recordProgrammaticSelection(translated);
 
             // Priority 3: Fallback to the original YouTube selection.
@@ -158,8 +169,17 @@ public class PreferredCaptionLanguagePatch {
     }
 
     @Nullable
-    static CaptionTrackInterface findAutoTranslatedTrack(
-            @Nullable List<CaptionTrackInterface> translatedTracks, String targetLanguage) {
+    static CaptionTrackInterface findAutoTranslatedTrack(@Nullable List<CaptionTrackInterface> directTracks,
+            @Nullable List<CaptionTrackInterface> translatedTracks, @Nullable CaptionTrackInterface defaultSource,
+            String targetLanguage, Locale locale) {
+        return findAutoTranslatedTrack(directTracks, translatedTracks, defaultSource,
+                targetLanguage, locale, false, null);
+    }
+
+    @Nullable
+    static CaptionTrackInterface findAutoTranslatedTrack(@Nullable List<CaptionTrackInterface> directTracks,
+            @Nullable List<CaptionTrackInterface> translatedTracks, @Nullable CaptionTrackInterface defaultSource,
+            String targetLanguage, Locale locale, boolean nativeRouting, @Nullable Object eligibleSource) {
         if (translatedTracks != null) {
             // Prefer the requested region when both regional and generic translations exist.
             String normalizedTarget = normalizeLanguageCode(targetLanguage);
@@ -170,7 +190,14 @@ public class PreferredCaptionLanguagePatch {
                 if (matchesLanguage(track.patch_getLanguageCode(), targetLanguage)) return track;
             }
         }
-        return null;
+
+        if (nativeRouting) {
+            return NativeTranslationBridge.preferredTranslation(eligibleSource, targetLanguage, locale);
+        }
+
+        String language = AutoTranslateCaptionsPatch.translationLanguage(targetLanguage);
+        return language == null ? null : AutoTranslateCaptionsPatch.createTranslation(
+                AutoTranslateCaptionsPatch.findFallbackSource(directTracks, defaultSource), language, locale);
     }
 
     /**

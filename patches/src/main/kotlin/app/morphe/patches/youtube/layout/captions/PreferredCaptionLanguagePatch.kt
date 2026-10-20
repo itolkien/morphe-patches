@@ -53,6 +53,8 @@ internal val preferredCaptionLanguagePatch = bytecodePatch(
             ListPreference("morphe_preferred_caption_language")
         )
 
+        val nativeRouting = usesNativeCaptions(packageMetadata.versionName)
+
         // Add interfaces and helper methods to allow extension code to call obfuscated code.
 
         val isDisableOptionFingerprint: Fingerprint
@@ -124,8 +126,50 @@ internal val preferredCaptionLanguagePatch = bytecodePatch(
                 )
             }
 
+            val defaultSourceMethod = CaptionTracksManagerDefaultSourceFingerprint(
+                CaptionTrackBuilderBuildFingerprint.method.returnType
+            ).method
+
             addTracksGetter("patch_getDirectCaptionTracks", CaptionTracksManagerDirectTracksFingerprint)
             addTracksGetter("patch_getAutoTranslateCaptionTracks", CaptionTracksManagerAutoTranslateTracksFingerprint)
+            addHelperMethod(
+                "patch_getDefaultCaptionSource",
+                EXTENSION_CAPTION_TRACK_INTERFACE,
+                smali = """
+                    iget-object v0, p0, $tracksManagerField
+                    if-eqz v0, :none
+                    invoke-virtual { v0 }, $defaultSourceMethod
+                    move-result-object v0
+                    :none
+                    return-object v0
+                """
+            )
+            // Each patched APK carries one routing implementation, not both.
+            addHelperMethod(
+                "patch_usesNativeCaptionRouting",
+                "Z",
+                smali = """
+                    const/4 v0, ${if (nativeRouting) "0x1" else "0x0"}
+                    return v0
+                """
+            )
+            addHelperMethod(
+                "patch_getEligibleTranslationSource",
+                "Ljava/lang/Object;",
+                freeRegisters = 2,
+                smali = if (nativeRouting) """
+                    iget-object v0, p0, $tracksManagerField
+                    if-eqz v0, :none
+                    const/4 v1, 0x1
+                    invoke-virtual { v0, v1 }, ${tracksManagerField.type}->universalCaptions_eligibleSource(Z)Lapp/morphe/extension/youtube/patches/captions/CaptionTranslationList\$CaptionTrack;
+                    move-result-object v0
+                    :none
+                    return-object v0
+                """ else """
+                    const/4 v0, 0x0
+                    return-object v0
+                """
+            )
         }
 
         // Override the default caption track.
