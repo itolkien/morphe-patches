@@ -161,7 +161,60 @@ internal val preferredCaptionLanguagePatch = bytecodePatch(
                     iget-object v0, p0, $tracksManagerField
                     if-eqz v0, :none
                     const/4 v1, 0x1
-                    invoke-virtual { v0, v1 }, ${tracksManagerField.type}->universalCaptions_eligibleSource(Z)Lapp/morphe/extension/youtube/patches/captions/CaptionTranslationList\$CaptionTrack;
+                    invoke-virtual { v0, v1 }, ${tracksManagerField.type}->universalCaptions_eligibleSource(Z)Lapp/morphe/extension/youtube/patches/captions/CaptionTranslationList${'
+                    move-result-object v0
+                    :none
+                    return-object v0
+                """ else """
+                    const/4 v0, 0x0
+                    return-object v0
+                """
+            )
+        }
+
+        // Override the default caption track.
+
+        // Hook the call site and not the default track method itself,
+        // so the subtitle manager instance is available.
+        val trackType = DefaultCaptionTrackFingerprint.method.returnType
+
+        Fingerprint(
+            definingClass = DefaultCaptionTrackFingerprint.classDef.type,
+            filters = listOf(
+                methodCall(reference = DefaultCaptionTrackFingerprint.method),
+                opcode(Opcode.MOVE_RESULT_OBJECT, location = MatchAfterImmediately())
+            )
+        ).match(DefaultCaptionTrackFingerprint.classDef).let {
+            val subtitleManagerRegister = it.instructionMatches[0]
+                .getInstruction<FiveRegisterInstruction>().registerC
+            val moveResultIndex = it.instructionMatches[1].index
+            val trackRegister = it.instructionMatches[1].getInstruction<OneRegisterInstruction>().registerA
+
+            it.method.addInstructions(
+                moveResultIndex + 1,
+                """
+                    invoke-static { v$subtitleManagerRegister, v$trackRegister }, $EXTENSION_CLASS->getPreferredCaptionTrack($EXTENSION_SUBTITLE_MANAGER_INTERFACE$EXTENSION_CAPTION_TRACK_INTERFACE)$EXTENSION_CAPTION_TRACK_INTERFACE
+                    move-result-object v$trackRegister
+                    check-cast v$trackRegister, $trackType
+                """
+            )
+        }
+
+        SetSubtitleTrackFingerprint.method.addInstructions(
+            0,
+            """
+                invoke-static { p0, p1, p2 }, $EXTENSION_CLASS->onSetSubtitleTrack($EXTENSION_SUBTITLE_MANAGER_INTERFACE${EXTENSION_CAPTION_TRACK_INTERFACE}Ljava/lang/Enum;)$EXTENSION_CAPTION_TRACK_INTERFACE
+                move-result-object p1
+                check-cast p1, $trackType
+            """
+        )
+
+        onCreateHook(EXTENSION_CLASS, "newVideoStarted")
+
+        hookVideoStarted("$EXTENSION_CLASS->videoInformationLoaded()V")
+    }
+}
+}CaptionTrack;
                     move-result-object v0
                     :none
                     return-object v0
