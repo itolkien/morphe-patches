@@ -16,7 +16,7 @@ public class PreferredCaptionRoutingTest {
             "https://www.youtube.com/api/timedtext?v=zyxwvutsrqp&lang=fr&sig=x%2By";
 
     private static final class Track implements CaptionTranslationList.CaptionTrack,
-            PreferredCaptionLanguagePatch.CaptionTrackInterface {
+            AutoTranslateCaptionsPatch.CaptionTrackInterface {
         final String code;
         final String url;
         final String vss;
@@ -34,6 +34,11 @@ public class PreferredCaptionRoutingTest {
         @Override public String universalCaptions_getCaptionUrl() { return url; }
         @Override public CharSequence universalCaptions_getCaptionLabel() { return name; }
         @Override public CaptionTranslationList.CaptionTrack universalCaptions_copyTranslation(
+                String language, String url, String vss, CharSequence label) {
+            return new Track(language, url, vss, label.toString());
+        }
+        @Override public String patch_getUrl() { return url; }
+        @Override public AutoTranslateCaptionsPatch.CaptionTrackInterface patch_copyTranslation(
                 String language, String url, String vss, CharSequence label) {
             return new Track(language, url, vss, label.toString());
         }
