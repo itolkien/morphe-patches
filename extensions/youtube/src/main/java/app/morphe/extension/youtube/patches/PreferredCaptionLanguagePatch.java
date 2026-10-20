@@ -17,7 +17,6 @@ import app.morphe.extension.shared.Logger;
 import app.morphe.extension.shared.Utils;
 import app.morphe.extension.shared.requests.Requester;
 import app.morphe.extension.youtube.settings.Settings;
-import app.morphe.extension.youtube.patches.captions.NativeTranslationBridge;
 
 @SuppressWarnings("unused")
 public class PreferredCaptionLanguagePatch {
@@ -41,9 +40,6 @@ public class PreferredCaptionLanguagePatch {
         @Nullable
         List<CaptionTrackInterface> patch_getAutoTranslateCaptionTracks();
 
-        /** Verified original caption source for the active audio track, if any. */
-        @Nullable
-        Object patch_getEligibleTranslationSource();
     }
 
     /**
@@ -146,16 +142,10 @@ public class PreferredCaptionLanguagePatch {
                 return recordProgrammaticSelection(nativeTrack);
             }
 
-            // Priority 2: prefer YouTube's existing or expanded translations.
+            // Priority 2: select a translation already offered by YouTube or
+            // added to the menu by Universal Captions. Do not create one here.
             CaptionTrackInterface translated = findAutoTranslatedTrack(
                     subtitleManager.patch_getAutoTranslateCaptionTracks(), targetLang);
-            // If a preferred target is missing, use the same verified
-            // current-audio source as Universal Captions, never another audio track.
-            if (translated == null) {
-                translated = NativeTranslationBridge.preferredTranslation(
-                        subtitleManager.patch_getEligibleTranslationSource(), targetLang,
-                        Requester.getAppLocale());
-            }
             if (translated != null) return recordProgrammaticSelection(translated);
 
             // Priority 3: Fallback to the original YouTube selection.

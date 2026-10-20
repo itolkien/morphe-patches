@@ -35,8 +35,6 @@ private const val EXTENSION_SUBTITLE_MANAGER_INTERFACE =
     $$"Lapp/morphe/extension/youtube/patches/PreferredCaptionLanguagePatch$SubtitleManagerInterface;"
 private const val EXTENSION_CAPTION_TRACK_INTERFACE =
     $$"Lapp/morphe/extension/youtube/patches/PreferredCaptionLanguagePatch$CaptionTrackInterface;"
-private const val NATIVE_CAPTION_TRACK_DESCRIPTOR =
-    $$"Lapp/morphe/extension/youtube/patches/captions/CaptionTranslationList$CaptionTrack;"
 
 internal val preferredCaptionLanguagePatch = bytecodePatch(
     description = "Adds an option to automatically select captions in your preferred language " +
@@ -128,20 +126,6 @@ internal val preferredCaptionLanguagePatch = bytecodePatch(
 
             addTracksGetter("patch_getDirectCaptionTracks", CaptionTracksManagerDirectTracksFingerprint)
             addTracksGetter("patch_getAutoTranslateCaptionTracks", CaptionTracksManagerAutoTranslateTracksFingerprint)
-            addHelperMethod(
-                "patch_getEligibleTranslationSource",
-                "Ljava/lang/Object;",
-                freeRegisters = 2,
-                smali = """
-                    iget-object v0, p0, $tracksManagerField
-                    if-eqz v0, :none
-                    const/4 v1, 0x1
-                    invoke-virtual { v0, v1 }, ${tracksManagerField.type}->universalCaptions_eligibleSource(Z)$NATIVE_CAPTION_TRACK_DESCRIPTOR
-                    move-result-object v0
-                    :none
-                    return-object v0
-                """
-            )
         }
 
         // Override the default caption track.
