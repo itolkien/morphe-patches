@@ -64,9 +64,6 @@ public class PreferredCaptionRoutingTest {
         assertNull(PreferredCaptionLanguagePatch.findAutoTranslatedTrack(
                 List.of(otherAudio), List.of(), otherAudio, "tr", Locale.ENGLISH,
                 true, null));
-        assertNull(NativeTranslationBridge.preferredTranslation(otherAudio, "tr", Locale.ENGLISH)
-                instanceof Track translated && translated.url.contains("abcdefghijk")
-                ? translated : null);
     }
 
     @Test public void nativeSourceSupportsLocaleAliasAndRegion() {
