@@ -40,9 +40,6 @@ public class PreferredCaptionLanguagePatch {
         @Nullable
         List<CaptionTrackInterface> patch_getAutoTranslateCaptionTracks();
 
-        /** @return YouTube's default original caption source for the current audio, if available. */
-        @Nullable
-        CaptionTrackInterface patch_getDefaultCaptionSource();
     }
 
     /**
@@ -145,11 +142,10 @@ public class PreferredCaptionLanguagePatch {
                 return recordProgrammaticSelection(nativeTrack);
             }
 
-            // Priority 2: Existing translation, then a validated current-audio source fallback.
-            // A missing menu row does not mean the backend cannot translate the source.
-            CaptionTrackInterface translated = findAutoTranslatedTrack(directTracks,
-                    subtitleManager.patch_getAutoTranslateCaptionTracks(),
-                    subtitleManager.patch_getDefaultCaptionSource(), targetLang, Requester.getAppLocale());
+            // Priority 2: YouTube's current-audio translation menu already includes
+            // the extra validated targets when Universal Captions is enabled.
+            CaptionTrackInterface translated = findAutoTranslatedTrack(
+                    subtitleManager.patch_getAutoTranslateCaptionTracks(), targetLang);
             if (translated != null) return recordProgrammaticSelection(translated);
 
             // Priority 3: Fallback to the original YouTube selection.
@@ -162,9 +158,8 @@ public class PreferredCaptionLanguagePatch {
     }
 
     @Nullable
-    static CaptionTrackInterface findAutoTranslatedTrack(@Nullable List<CaptionTrackInterface> directTracks,
-            @Nullable List<CaptionTrackInterface> translatedTracks, @Nullable CaptionTrackInterface defaultSource,
-            String targetLanguage, Locale locale) {
+    static CaptionTrackInterface findAutoTranslatedTrack(
+            @Nullable List<CaptionTrackInterface> translatedTracks, String targetLanguage) {
         if (translatedTracks != null) {
             // Prefer the requested region when both regional and generic translations exist.
             String normalizedTarget = normalizeLanguageCode(targetLanguage);
@@ -175,9 +170,7 @@ public class PreferredCaptionLanguagePatch {
                 if (matchesLanguage(track.patch_getLanguageCode(), targetLanguage)) return track;
             }
         }
-        String language = AutoTranslateCaptionsPatch.translationLanguage(targetLanguage);
-        return language == null ? null : AutoTranslateCaptionsPatch.createTranslation(
-                AutoTranslateCaptionsPatch.findFallbackSource(directTracks, defaultSource), language, locale);
+        return null;
     }
 
     /**
