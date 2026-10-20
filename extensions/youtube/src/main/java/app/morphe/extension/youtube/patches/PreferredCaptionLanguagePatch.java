@@ -150,13 +150,18 @@ public class PreferredCaptionLanguagePatch {
                 return recordProgrammaticSelection(nativeTrack);
             }
 
-            // Priority 2: native translations, then a source-specific fallback.
-            // Unverified versions use Morphe's previous fallback unchanged.
+            // Check YouTube's translated menu first. Only resolve an original source
+            // when a requested translation is missing.
+            boolean nativeRouting = subtitleManager.patch_usesNativeCaptionRouting();
+            Locale locale = Requester.getAppLocale();
             CaptionTrackInterface translated = findAutoTranslatedTrack(
                     directTracks, subtitleManager.patch_getAutoTranslateCaptionTracks(),
-                    subtitleManager.patch_getDefaultCaptionSource(), targetLang, Requester.getAppLocale(),
-                    subtitleManager.patch_usesNativeCaptionRouting(),
-                    subtitleManager.patch_getEligibleTranslationSource());
+                    nativeRouting ? null : subtitleManager.patch_getDefaultCaptionSource(),
+                    targetLang, locale, nativeRouting, null);
+            if (translated == null && nativeRouting) {
+                translated = NativeTranslationBridge.preferredTranslation(
+                        subtitleManager.patch_getEligibleTranslationSource(), targetLang, locale);
+            }
             if (translated != null) return recordProgrammaticSelection(translated);
 
             // Priority 3: Fallback to the original YouTube selection.
