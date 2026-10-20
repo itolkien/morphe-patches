@@ -19,6 +19,7 @@ import app.morphe.patcher.opcode
 import app.morphe.patcher.string
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 
 private object SubtitleManagerFingerprintClassFingerprint : Fingerprint(
     returnType = "Z",

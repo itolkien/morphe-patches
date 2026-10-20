@@ -140,10 +140,10 @@ public class CaptionPenStylesTest {
                     CaptionPenStyles.endCaption(request);
                 }
             });
-            assertEquals(DEFAULT_PEN, translated.get(5, TimeUnit.SECONDS));
-            assertEquals(12, original.get(5, TimeUnit.SECONDS));
+            assertEquals(DEFAULT_PEN, translated.get(5, TimeUnit.SECONDS).intValue());
+            assertEquals(12, original.get(5, TimeUnit.SECONDS).intValue());
             Future<Integer> reused = workers.submit(() -> CaptionPenStyles.getPenId(12));
-            assertEquals(12, reused.get(5, TimeUnit.SECONDS));
+            assertEquals(12, reused.get(5, TimeUnit.SECONDS).intValue());
         } finally {
             workers.shutdownNow();
         }
