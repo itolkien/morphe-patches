@@ -34,9 +34,9 @@ private const val EXTENSION_CLASS =
 private const val EXTENSION_SUBTITLE_MANAGER_INTERFACE =
     $$"Lapp/morphe/extension/youtube/patches/PreferredCaptionLanguagePatch$SubtitleManagerInterface;"
 private const val EXTENSION_CAPTION_TRACK_INTERFACE =
-    $$"Lapp/morphe/extension/youtube/patches/PreferredCaptionLanguagePatch$CaptionTrackInterface;"
+    $"Lapp/morphe/extension/youtube/patches/PreferredCaptionLanguagePatch$CaptionTrackInterface;"
 private const val NATIVE_CAPTION_TRACK_DESCRIPTOR =
-    $$"Lapp/morphe/extension/youtube/patches/captions/CaptionTranslationList$CaptionTrack;"
+    $"Lapp/morphe/extension/youtube/patches/captions/CaptionTranslationList$CaptionTrack;"
 
 internal val preferredCaptionLanguagePatch = bytecodePatch(
     description = "Adds an option to automatically select captions in your preferred language " +
@@ -54,8 +54,6 @@ internal val preferredCaptionLanguagePatch = bytecodePatch(
         settingsMenuCaptionGroup.add(
             ListPreference("morphe_preferred_caption_language")
         )
-
-        val nativeRouting = usesNativeCaptions(packageMetadata.versionName)
 
         // Add interfaces and helper methods to allow extension code to call obfuscated code.
 
@@ -128,47 +126,19 @@ internal val preferredCaptionLanguagePatch = bytecodePatch(
                 )
             }
 
-            val defaultSourceMethod = CaptionTracksManagerDefaultSourceFingerprint(
-                CaptionTrackBuilderBuildFingerprint.method.returnType
-            ).method
-
             addTracksGetter("patch_getDirectCaptionTracks", CaptionTracksManagerDirectTracksFingerprint)
             addTracksGetter("patch_getAutoTranslateCaptionTracks", CaptionTracksManagerAutoTranslateTracksFingerprint)
-            addHelperMethod(
-                "patch_getDefaultCaptionSource",
-                EXTENSION_CAPTION_TRACK_INTERFACE,
-                smali = """
-                    iget-object v0, p0, $tracksManagerField
-                    if-eqz v0, :none
-                    invoke-virtual { v0 }, $defaultSourceMethod
-                    move-result-object v0
-                    :none
-                    return-object v0
-                """
-            )
-            // Each patched APK carries one routing implementation, not both.
-            addHelperMethod(
-                "patch_usesNativeCaptionRouting",
-                "Z",
-                smali = """
-                    const/4 v0, ${if (nativeRouting) "0x1" else "0x0"}
-                    return v0
-                """
-            )
             addHelperMethod(
                 "patch_getEligibleTranslationSource",
                 "Ljava/lang/Object;",
                 freeRegisters = 2,
-                smali = if (nativeRouting) """
+                smali = """
                     iget-object v0, p0, $tracksManagerField
                     if-eqz v0, :none
                     const/4 v1, 0x1
                     invoke-virtual { v0, v1 }, ${tracksManagerField.type}->universalCaptions_eligibleSource(Z)$NATIVE_CAPTION_TRACK_DESCRIPTOR
                     move-result-object v0
                     :none
-                    return-object v0
-                """ else """
-                    const/4 v0, 0x0
                     return-object v0
                 """
             )
