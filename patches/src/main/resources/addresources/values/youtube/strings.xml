@@ -874,8 +874,8 @@ To fix this, turn on \'Spoof video streams\' and change the \'Default client\' t
     <!-- layout.captions.transcriptPatch -->
     <string name="morphe_fix_transcript_title">Fix transcript</string>
     <string name="morphe_fix_transcript_summary">Resolves a precondition check failure that can prevent the transcript from loading</string>
-    <string name="morphe_caption_window_gap_minimal_title">Test: Stack separated caption windows</string>
-    <string name="morphe_caption_window_gap_minimal_summary">Experimental: move two unusually separated subtitle boxes together. Does not change text or font size. Turn off after testing.</string>
+    <string name="morphe_caption_window_gap_minimal_title">Test: Compact subtitle rows (experimental)</string>
+    <string name="morphe_caption_window_gap_minimal_summary">Only compresses unusually large gaps between native subtitle lines. Text, timing, and font remain native. YouTube 21.23.492 only.</string>
     <string name="morphe_captions_in_pip_title">Show captions in picture-in-picture</string>
 
     <!-- layout.buttons.navigation.navigationButtonsPatch -->
