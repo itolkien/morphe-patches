@@ -17,7 +17,7 @@ Select the new default-off patch **Reflow auto-translated caption windows (test)
 1. Preserve the native pen's relative size and safe bold/italic/underline; use default colors/opacity/background. The explicit native-pen A/B toggle remains independently usable when reflow is OFF.
 2. Capture translated-track provenance on each parsed native timeline. Cached original/translated tracks do not rely on UI-thread global state.
 3. At each timeline sample, sort active visible windows by vertical/horizontal anchor, then stable ID. Join their current visible text, replace hard newlines with spaces, and measure that same visible text in one centered-bottom native window. Keep safe emphasis/relative-size spans.
-4. Original tracks, OFF mode, scrolling/roll-up windows, unknown ABI objects, mixed snapshots, >8 windows or >4096 characters retain native layout. Hidden/empty text cannot create ghost content. No source timeline intervals or input cue objects are modified.
+4. Original tracks, OFF mode, a lone scrolling/roll-up window, unknown ABI objects, mixed snapshots, >8 windows or >4096 characters retain native layout. When two or more visible translated windows share the same sample and at least one is marked scrolling/roll-up, they can be reflowed together. Hidden/empty text cannot create ghost content. No source timeline intervals or input cue objects are modified.
 
 This is a reversible layout **workaround**, not proof that YouTube's server segmentation or every translation is fixed. Greedy native wrapping is retained; semantic/balanced line breaking, manual translation speaker-position preservation, RTL visual order, actual Fold transitions, 4:3 and cold fullscreen remain unverified. Translation windows can represent distinct speakers; enabling reflow intentionally gives up their original placement.
 
@@ -39,7 +39,7 @@ adb -P 5047 -s emulator-5580 install -t caption-replay-tests.apk
 adb -P 5047 -s emulator-5580 shell am instrument -w app.morphe.captionreplay/app.morphe.captionreplay.CaptionReplay
 ```
 
-The replay uses real patched native classes and Android text/layout. Its Turkish text, spans, source intervals and window metadata are controlled fixtures, not a captured live YouTube response. It checks off/original pass-through, one-window reflow, span safety, timeline provenance and native expiry, native view bounds, source size/emphasis copies and the learned geometry/native font calculation. It renders fixture before/after PNGs into the clone's external files directory.
+The replay uses real patched native classes and Android text/layout. Its Turkish text, spans, source intervals and window metadata are controlled fixtures, not a captured live YouTube response. It checks off/original pass-through, overlapping scrolling windows merging into one while a lone scrolling window stays native, span safety, timeline provenance and native expiry, source size/emphasis copies and learned geometry/native font calculation. The before/after frames use controlled text inspired by the supplied screenshots.
 
 ## Review decisions
 
@@ -62,8 +62,8 @@ The srv3 fixture is processed by YouTube's own `adwc` XML dispatcher, `apnv`/`ap
 - `:extensions:youtube:test`: 53 tests,0 failures.
 - `:patches:test`: 6 executed tests passed;5 APK/device-input checks skipped because their external inputs were not supplied.
 - Full MPP build succeeded. Full/default Morphe APK applied107 patches; package `app.morphe.captionlayoutlab`, version21.23.492.
-- Final instrumented Android11/API30 AVD run: **44 assertions passed**. This includes actual Hilt `InternalMainActivity` context, actual `nll.f` selector and injected geometry hook, cold fullscreen pass-through, native XML dispatch and srv3 styling/timing, native views and span safety.
+- Final instrumented Android11/API30 AVD run: **45 assertions passed**. This includes actual Hilt `InternalMainActivity` context, actual `nll.f` selector and injected geometry hook, cold fullscreen pass-through, native XML dispatch and srv3 styling/timing, the scrolling-window reflow cases and native views/span safety.
 - SDK APK signature verification passed (v2); the APK installed on the AVD. Official MicroG-RE7.2.2 also installed, and the clone's actual Activity launched. A live video/translated track was not confirmed; an initial loading/modal WebView prevented treating that smoke check as playback validation.
-- No physical phone was used. No real Samsung Fold transition, original problematic live timed-text response, roll-up translation reflow, RTL reading order or supported-version matrix was validated.
+- No physical phone was used. The example video page confirmed the English auto-caption transcript and Turkish auto-translation in a browser at the matching segment, but did not verify the Android renderer's rolling-window flag. The Android experiment separately proves the policy path for two overlapping native scrolling cues; no Android response for the supplied video was captured. RTL reading order and supported-version matrix remain unverified.
 
 Final replay output and PNGs are in the delivery evidence archive. The screenshots are synthetic native-renderer fixtures at an unmodified base font size; they isolate layout, rather than demonstrating video playback or a Fold screenshot.

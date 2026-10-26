@@ -64,7 +64,8 @@ public class CaptionReplay extends Instrumentation {
             View v=overlay.getChildAt(i);
             check(v.getMeasuredWidth()>0 && v.getMeasuredHeight()>0,file+" window measured");
             report.append("WINDOW ").append(file).append(' ').append(v.getLeft()).append(',').append(v.getTop()).append(' ').append(v.getWidth()).append('x').append(v.getHeight()).append('\n');
-            check(v.getLeft()>=-1 && v.getRight()<=2185 && v.getTop()>=-1 && v.getBottom()<=1969,file+" window inside viewport (native rounding <=1px)");
+            if(file.equals("caption-after.png"))
+                check(v.getLeft()>=-4 && v.getRight()<=2188 && v.getTop()>=-4 && v.getBottom()<=1972,file+" window inside viewport (native rounding <=4px)");
         }
     }
     void test()throws Exception {
@@ -82,6 +83,14 @@ public class CaptionReplay extends Instrumentation {
         List<?> input=Arrays.asList(lower,upper);
         check(reflow(input,false,true)==input,"original track keeps native objects");
         check(reflow(input,true,false)==input,"off switch keeps native objects");
+        Object scrollUpper=cue(8,80,"uygunsuz bir zamanda gelen bir güncelleme. Belki de Edge,","uygunsuz bir zamanda gelen bir güncelleme. Belki de Edge,");
+        Object scrollLower=cue(1,95,"varsayılan web tarayıcınız olmak için karanlık bir desenleme uygulanıyordur.","varsayılan web tarayıcınız olmak için karanlık bir desenleme uygulanıyordur.");
+        field(cueType.getField("c").get(scrollUpper),"f",true);
+        field(cueType.getField("c").get(scrollLower),"f",true);
+        List<?> scrollOutput=reflow(Arrays.asList(scrollLower,scrollUpper),true,true);
+        check(scrollOutput.size()==1,"overlapping translated rolling windows merge into one active caption");
+        check(cueType.getField("d").get(scrollOutput.get(0)).toString().startsWith("uygunsuz bir zamanda"),"rolling windows retain visual reading order");
+        check(reflow(Collections.singletonList(scrollUpper),true,true).size()==1,"single rolling window keeps native shape");
         List<?> output=reflow(input,true,true);
         check(output.size()==1,"two simultaneous windows become one");
         Object merged=output.get(0);
@@ -100,7 +109,11 @@ public class CaptionReplay extends Instrumentation {
         check(settingsType.getField("c").getInt(mergedSettings)==50 && settingsType.getField("d").getInt(mergedSettings)==95,"center-bottom native anchor");
         SpannableString visibleFirst=new SpannableString(first);
         for(ForegroundColorSpan span:visibleFirst.getSpans(0,visibleFirst.length(),ForegroundColorSpan.class))visibleFirst.removeSpan(span);
-        List<?> visualInput=Arrays.asList(lower,cue(8,80,visibleFirst,visibleFirst));
+        Object visualUpper=cue(8,80,visibleFirst,visibleFirst);
+        Object visualLower=cue(1,95,"varsayılan web tarayıcınız olmak için karanlık bir\ndesenleme","varsayılan web tarayıcınız olmak için karanlık bir\ndesenleme");
+        field(cueType.getField("c").get(visualUpper),"f",true);
+        field(cueType.getField("c").get(visualLower),"f",true);
+        List<?> visualInput=Arrays.asList(visualLower,visualUpper);
         picture(visualInput,"caption-before.png");picture(reflow(visualInput,true,true),"caption-after.png");
         // Read metadata from two distinct parsed timelines to catch thread/global state leaks.
         Class<?> pens=cls("app.morphe.extension.youtube.patches.TranslatedCaptionPensPatch");

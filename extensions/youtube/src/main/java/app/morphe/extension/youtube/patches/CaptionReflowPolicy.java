@@ -26,12 +26,13 @@ public final class CaptionReflowPolicy {
         List<Cue> visible = new ArrayList<>();
         Long time = null;
         long length = 0;
+        boolean hasScrollableWindow = false;
         for (Object item : input) {
             if (!(item instanceof Cue cue)) return null;
             if (!cue.patch_isVisible()) continue;
             CharSequence text = cue.patch_getText();
             if (text == null || text.length() == 0) continue;
-            if (cue.patch_isScrollable()) return null;
+            hasScrollableWindow |= cue.patch_isScrollable();
             // apoo time is the sampling instant, not the source cue start/end.
             // Native apnt.c has already removed expired text before this policy runs.
             if (time != null && time.longValue() != cue.patch_getTime()) return null;
@@ -40,6 +41,10 @@ public final class CaptionReflowPolicy {
             if (length > 4096) return null;
             visible.add(cue);
         }
+        // A lone roll-up window should keep YouTube's native behavior. When multiple translated
+        // windows are concurrently visible, however, retaining their separate anchors makes the
+        // previous spoken phrase linger above the current one (as on live auto-caption streams).
+        if (hasScrollableWindow && visible.size() < 2) return null;
         visible.sort(Comparator.comparingInt(Cue::patch_getY)
                 .thenComparingInt(Cue::patch_getX).thenComparingInt(Cue::patch_getId));
         return visible;
