@@ -63,6 +63,7 @@ val captionsPatch = bytecodePatch(
         transcriptPatch,
         translatedCaptionPensPatch,
         captionsInPipPatch,
+        captionAlignmentPatch,
     )
 
     compatibleWith(COMPATIBILITY_YOUTUBE)
