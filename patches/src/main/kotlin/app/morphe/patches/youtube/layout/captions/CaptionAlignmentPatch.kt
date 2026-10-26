@@ -13,6 +13,7 @@ import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 
 private const val EXTENSION_CLASS =
     "Lapp/morphe/extension/youtube/patches/CaptionAlignmentPatch;"
+private const val ALIGNMENT_TYPE = "Landroid/text/Layout\$Alignment;"
 
 /**
  * Target the native caption window's explicit left-alignment override.
@@ -48,8 +49,8 @@ internal val captionAlignmentPatch = bytecodePatch(
             it.method.addInstructions(
                 match.index + 1,
                 """
-                    invoke-static { v\$register }, \$EXTENSION_CLASS->overrideAlignment(Landroid/text/Layout\$Alignment;)Landroid/text/Layout\$Alignment;
-                    move-result-object v\$register
+                    invoke-static { v$register }, $EXTENSION_CLASS->overrideAlignment($ALIGNMENT_TYPE)$ALIGNMENT_TYPE
+                    move-result-object v$register
                 """.trimIndent(),
             )
         }
