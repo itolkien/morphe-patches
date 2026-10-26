@@ -4,6 +4,7 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import java.util.WeakHashMap;
+import app.morphe.extension.youtube.settings.Settings;
 
 /**
  * Observe a STABLE video-window aspect ratio, and use it solely to normalize
@@ -22,6 +23,45 @@ public final class CaptionAspectRatioFix {
     private static final float ASPECT_TOLERANCE = 0.008f;
     private static final long RECENT_ASPECT_TTL_MS = 20000L;
     private static final long LOG_INTERVAL_MS = 750L;
+
+    private static final ThreadLocal<FontTrace> FONT_TRACE = new ThreadLocal<>();
+    private static long lastFontTraceMs;
+
+    private static final class FontTrace {
+        final float scale;
+        final int width;
+        final int inputHeight;
+        final boolean enabled;
+        int effectiveHeight;
+
+        FontTrace(float scale, int width, int height, boolean enabled) {
+            this.scale = scale;
+            this.width = width;
+            this.inputHeight = height;
+            this.effectiveHeight = height;
+            this.enabled = enabled;
+        }
+    }
+
+    /** Diagnostic hook: logs the size actually returned by the native YouTube selector. */
+    public static float traceResult(float fontSize) {
+        FontTrace trace = FONT_TRACE.get();
+        FONT_TRACE.remove();
+        if (trace != null) {
+            long now = SystemClock.uptimeMillis();
+            synchronized (STATES) {
+                if (now - lastFontTraceMs >= 900L) {
+                    Log.i(TAG, "font result=" + fontSize
+                            + " scale=" + trace.scale
+                            + " input=" + trace.width + "x" + trace.inputHeight
+                            + " effective=" + trace.width + "x" + trace.effectiveHeight
+                            + " geometry=" + (trace.enabled ? "on" : "off"));
+                    lastFontTraceMs = now;
+                }
+            }
+        }
+        return fontSize;
+    }
 
     private static float recentStableAspect = Float.NaN;
     private static long recentStableTimeMs;
@@ -57,7 +97,10 @@ public final class CaptionAspectRatioFix {
 
     /** Original font scale, mode selector and font formula stay unchanged. */
     public static int normalizeHeight(View view, float scale, int width, int height) {
-        if (view == null || width <= 0 || height <= 0) return height;
+        final boolean enabled = Settings.CAPTION_GEOMETRY_DEBUG_ENABLED.get();
+        final FontTrace trace = new FontTrace(scale, width, height, enabled);
+        FONT_TRACE.set(trace);
+        if (!enabled || view == null || width <= 0 || height <= 0) return height;
         synchronized (STATES) {
             long now = SystemClock.uptimeMillis();
             State state = STATES.get(view);
@@ -120,6 +163,7 @@ public final class CaptionAspectRatioFix {
                         + " mode=originalYouTubeCalculation");
                 state.lastLogTimeMs = now;
             }
+            trace.effectiveHeight = effectiveHeight;
             return effectiveHeight;
         }
     }
