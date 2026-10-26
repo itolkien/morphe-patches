@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - experiment/caption-window-stack-offline
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
