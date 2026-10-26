@@ -10,7 +10,9 @@ import java.util.WeakHashMap;
  * the height passed to YouTube's original subtitle size calculator when its
  * container later expands to near-square fullscreen.
  *
- * Never chooses a font size, changes YouTube's mode decision, or assumes 16:9.
+ * Never chooses a font size or changes YouTube's mode decision.
+ * For safety, this experimental candidate currently normalizes only near-square
+ * windows after observing a stable 16:9-ish reference. Other media remain native.
  */
 public final class CaptionAspectRatioFix {
     private static final String TAG = "MorpheCaptionFix";
@@ -58,9 +60,16 @@ public final class CaptionAspectRatioFix {
         long lastLogTimeMs;
     }
 
-    private static boolean isNearSquareLandscape(int width, int height) {
+    /** Only the near-square Fold fullscreen layout is targeted (height / width >= 0.85). */
+    static boolean isNearSquareLandscape(int width, int height) {
         return width > 0 && height > 0 && width >= height
-                && 4L * height >= 3L * width;
+                && 20L * height >= 17L * width;
+    }
+
+    /** Transitional and outer-display dimensions are not reliable video references. */
+    static boolean isTrustedReferenceAspect(float aspect) {
+        return Float.isFinite(aspect)
+                && Math.abs(aspect - (9.0f / 16.0f)) <= 0.035f;
     }
 
     /** Original font scale, mode selector and font formula stay unchanged. */
@@ -75,8 +84,13 @@ public final class CaptionAspectRatioFix {
             }
 
             if (!isNearSquareLandscape(width, height)) {
-                if (width > height && 4L * height < 3L * width) {
+                if (width > height) {
                     float observed = (float) height / (float) width;
+                    if (!isTrustedReferenceAspect(observed)) {
+                        // A 21:9 display, 4:3 media or transition is not proof of
+                        // the currently displayed video's subtitle viewport.
+                        return height;
+                    }
                     if (!Float.isFinite(state.candidateAspect)
                             || Math.abs(observed - state.candidateAspect) > ASPECT_TOLERANCE) {
                         state.candidateAspect = observed;
@@ -99,16 +113,15 @@ public final class CaptionAspectRatioFix {
 
             float aspect = state.stableAspect;
             String source = "sameViewStable";
-            if (!(aspect > 0.0f) || !Float.isFinite(aspect)) {
+            if (!isTrustedReferenceAspect(aspect)) {
                 long age = now - recentStableTimeMs;
                 if (age >= 0L && age <= RECENT_ASPECT_TTL_MS
-                        && Float.isFinite(recentStableAspect)
-                        && recentStableAspect > 0.0f) {
+                        && isTrustedReferenceAspect(recentStableAspect)) {
                     aspect = recentStableAspect;
                     source = "recentStableViewport";
                 }
             }
-            if (!(aspect > 0.0f) || !Float.isFinite(aspect)) {
+            if (!isTrustedReferenceAspect(aspect)) {
                 if (state.lastLogTimeMs == 0 || now - state.lastLogTimeMs >= LOG_INTERVAL_MS) {
                     Log.i(TAG, "near-square input=" + width + "x" + height
                             + " reference=missing -> original geometry retained");
