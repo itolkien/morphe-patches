@@ -11,6 +11,7 @@
 package app.morphe.extension.youtube.patches;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import app.morphe.extension.shared.Utils;
 import app.morphe.extension.youtube.settings.Settings;
@@ -26,6 +27,8 @@ public class AutoCaptionsPatch {
     }
 
     private static final AtomicBoolean captionsButtonStatus = new AtomicBoolean(false);
+    /** Token used to reject a previous video's delayed unlock. */
+    private static final AtomicInteger videoGeneration = new AtomicInteger();
 
     /**
      * Injection point.
@@ -65,7 +68,8 @@ public class AutoCaptionsPatch {
      * Injection point.
      * Called before {@link #disableAutoCaptions(boolean)}.
      */
-    public static void newVideoStarted(VideoInformation.PlaybackController ignoredPlayerController) {
+    public static synchronized void newVideoStarted(VideoInformation.PlaybackController ignoredPlayerController) {
+        videoGeneration.incrementAndGet();
         captionsButtonStatus.set(false);
     }
 
@@ -74,6 +78,13 @@ public class AutoCaptionsPatch {
      * Called after {@link #disableAutoCaptions(boolean)}.
      */
     public static void videoInformationLoaded() {
-        Utils.runOnMainThreadDelayed(() -> captionsButtonStatus.compareAndSet(false, true), 150);
+        final int generation = videoGeneration.get();
+        Utils.runOnMainThreadDelayed(() -> unlockIfCurrentVideo(generation), 150);
+    }
+
+    /** Package-visible for regression tests of delayed video transitions. */
+    static synchronized boolean unlockIfCurrentVideo(int generation) {
+        return videoGeneration.get() == generation
+                && captionsButtonStatus.compareAndSet(false, true);
     }
 }
