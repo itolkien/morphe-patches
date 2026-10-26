@@ -9,6 +9,18 @@ Control APK (only GmsCore support + Clone app) displays native-sized captions in
 - Logs the actual `float` returned by YouTube's native `nll.f(FII)F` method after the method runs (not just the inferred viewport). The value is returned **unchanged**. Log tag `MorpheCaptionFix`.
 - Diagnostic branch only; do not merge as production code.
 
+## Critical: use the full Morphe patch set for this test
+
+Do **not** pass `--exclusive` with only GmsCore support, Clone app, and the geometry patch when you expect the full Morphe settings UI. That mode disables all other default patches, including the `Captions` patch that creates Morphe → Player → Captions and renders the diagnostic toggle added to `settingsMenuCaptionGroup`.
+
+For the A/B clone, **omit `--exclusive`** and enable the otherwise-default-off geometry patch explicitly:
+
+```text
+--patches <compiled.mpp> --enable "Fix caption size on near-square screens (test)" --enable "Captions" --enable "GmsCore support" --enable "Clone app"
+```
+
+Use a new clone package name to avoid overwriting test apps, keep the same 21.23.492 APK, and verify the patcher reports success before installing. Native font-size logs can be compared with the same settings and video in the **same app**.
+
 ## A/B test
 1. Patch YouTube 21.23.492 with `Fix caption size on near-square screens (test)`, GmsCore support and Clone app; give it a new unique cloned package.
 2. Open same video with the same caption track and appearance preferences.
