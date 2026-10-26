@@ -385,6 +385,9 @@ public class Settings extends SharedYouTubeSettings {
     public static final StringSetting CAPTION_COOKIES = new StringSetting("morphe_caption_cookies", "", true, parent(SET_CAPTION_COOKIES));
     public static final BooleanSetting FIX_TRANSCRIPT = new BooleanSetting("morphe_fix_transcript", TRUE, true);
     public static final BooleanSetting CAPTIONS_IN_PIP = new BooleanSetting("morphe_captions_in_pip", TRUE);
+    public static final BooleanSetting CAPTION_GEOMETRY_DEBUG_ENABLED = new BooleanSetting("morphe_caption_geometry_debug_enabled", TRUE);
+    public static final BooleanSetting TRANSLATED_CAPTIONS_KEEP_NATIVE_PENS_TEST = new BooleanSetting("morphe_translated_captions_keep_native_pens_test", FALSE);
+    public static final BooleanSetting STACK_TRANSLATED_CAPTION_WINDOWS_TEST = new BooleanSetting("morphe_stack_translated_caption_windows_test", FALSE);
 
     // Miniplayer
     public static final BooleanSetting MINIPLAYER_DISABLE_RESUMING = new BooleanSetting("morphe_miniplayer_disable_resuming", FALSE, true);

@@ -12,6 +12,7 @@ package app.morphe.patches.youtube.layout.captions
 import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.patch.bytecodePatch
+import app.morphe.patches.shared.misc.settings.preference.SwitchPreference
 import app.morphe.patches.youtube.misc.extension.sharedExtensionPatch
 import app.morphe.util.getReference
 import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction
@@ -37,6 +38,10 @@ internal val translatedCaptionPensPatch = bytecodePatch(
     dependsOn(sharedExtensionPatch, preferredCaptionLanguagePatch)
 
     execute {
+        settingsMenuCaptionGroup.add(
+            SwitchPreference("morphe_translated_captions_keep_native_pens_test", summary = true)
+        )
+
         // Track whether the caption track that is parsed is auto-translated.
         // The track is set from the request being parsed and not from the last requested url,
         // because cached tracks are parsed without a new request.
