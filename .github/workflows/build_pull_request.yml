@@ -7,6 +7,7 @@ on:
       - dev
       - experiment/caption-window-gap-minimal
       - experiment/caption-window-predraw-diagnostics
+      - experiment/caption-inner-rows-v1
   pull_request:
     branches:
       - dev
