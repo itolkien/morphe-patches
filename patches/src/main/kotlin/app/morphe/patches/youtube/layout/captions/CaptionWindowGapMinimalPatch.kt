@@ -28,8 +28,8 @@ private object CaptionOverlayFingerprint : Fingerprint(
 /** Only change post-layout positions: native text, spans, cues and font sizes remain untouched. */
 @Suppress("unused")
 val captionWindowGapMinimalPatch = bytecodePatch(
-    name = "Test: Stack separated caption windows",
-    description = "Minimal opt-in experiment for two abnormally separated YouTube caption windows.",
+    name = "Test: Compact subtitle rows (experimental)",
+    description = "Adjust only exaggerated gaps between rows inside one YouTube subtitle window (21.23.492).",
     default = false,
 ) {
     dependsOn(captionsPatch)
