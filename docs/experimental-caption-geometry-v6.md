@@ -1,4 +1,4 @@
-# Near-square caption geometry experiment (v6)
+# Near-square caption geometry experiment (v6 baseline + video-reset candidate)
 
 This branch preserves the tested **v6** experiment for later refinement. It is **not ready for upstream merge**.
 
@@ -11,7 +11,7 @@ v6 leaves YouTube's `nll.f(FII)F` selector and original `aose.f(FII)F` font form
 - Fingerprint locates selector using its parent size calculator.
 - `normalizeHeight(View, float, int, int)` is called at the start of that selector.
 - Near-square means landscape with height >= 75% of width.
-- Per-view stable ratio with weak references; 20-second fallback to a recent stable ratio.
+- Per-view stable ratio with weak references; 20-second fallback to a recent stable ratio.\n- **New unverified change:** the video lifecycle hook clears both per-view state and recent fallback when a new video begins; this prevents inheriting the previous video's aspect ratio. This change has not been re-tested in the APK.
 - Without a known stable ratio, original height is left unchanged.
 - Diagnostic tag: `MorpheCaptionFix`.
 
@@ -30,7 +30,7 @@ v6 leaves YouTube's `nll.f(FII)F` selector and original `aose.f(FII)F` font form
 - [ ] Test cold-start directly in fullscreen (no learned reference) and orientation transitions.
 - [ ] Check videos with different caption styling and YouTube caption-size preferences.
 - [ ] Verify supported YouTube versions; currently only 21.23.492 is reported tested.
-- [ ] Check no stale cross-video or cross-view ratio leaks, and ensure the reference viewport really corresponds to the displayed media.
+- [ ] Verify new video-start hook fires on YouTube 21.23.492 and does not disable valid same-video normal→fullscreen reference sharing.\n- [ ] Check no stale cross-video or cross-view ratio leaks, and ensure the reference viewport really corresponds to the displayed media.
 - [ ] Evaluate logs, allocations, synchronization, and simplify for release.
 - [ ] Confirm clean Gradle/MPP build and APK validation for the eventual final commit.
 
@@ -39,3 +39,10 @@ Do not merge experimental patch into `Captions` or enable it by default without 
 ## Local build
 
 Enable `Fix caption size on near-square screens (test)` alongside the required `GmsCore support` and `Clone app` patches for a separate test APK.
+
+## Related independent experiments
+
+- Draft PR #8: Auto Captions delayed-callback generation guard (reliability).
+- Draft PR #9: Opt-in centering of captions YouTube left-aligns (alignment).
+
+Both remain separate from this geometry PR; neither changes baseline v6 behaviour unless explicitly built and installed.
