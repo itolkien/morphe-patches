@@ -8,166 +8,138 @@ import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import app.morphe.extension.youtube.settings.Settings;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.WeakHashMap;
 
 /**
- * Diagnostic experiment for two vertically separated native subtitle windows.
+ * Experimental fix/probe for unusually separated rows inside a SINGLE native
+ * SubtitleWindowView. No content, timing, span, font or track modifications.
  *
- * The old hook only called afterLayout at parent onLayout, which might not run
- * when the subtitle renderer updates its cue windows. Register an OnPreDraw
- * listener once so each updated frame can be inspected after native layout.
+ * YouTube 21.23.492 only. The Android render tree is measured after native layout.
  */
 @SuppressWarnings("unused")
 public final class CaptionWindowGapPatch {
-    private static final String TAG = "MorpheCaptionGap";
+    private static final String TAG = "MorpheCaptionRows";
     private static final String WINDOW =
             "com.google.android.libraries.youtube.player.subtitles.ui.SubtitleWindowView";
+    private static final String ROW = "apow";
     private static final WeakHashMap<ViewGroup, Boolean> ATTACHED = new WeakHashMap<>();
     private static long lastReportMs;
 
     private CaptionWindowGapPatch() {}
 
-    /** Native onLayout hook, version-scoped by the Kotlin patch. */
     public static void afterLayout(ViewGroup overlay) {
         if (overlay == null) return;
-        ViewTreeObserver observer = overlay.getViewTreeObserver();
-        if (!observer.isAlive()) {
-            Log.i(TAG, "hook reached but observer is not alive");
-            return;
-        }
+        final ViewTreeObserver observer = overlay.getViewTreeObserver();
+        if (!observer.isAlive()) return;
         synchronized (ATTACHED) {
             if (ATTACHED.containsKey(overlay)) return;
             ATTACHED.put(overlay, Boolean.TRUE);
         }
-
-        final WeakReference<ViewGroup> reference = new WeakReference<>(overlay);
+        final WeakReference<ViewGroup> ref = new WeakReference<>(overlay);
         final ViewTreeObserver.OnPreDrawListener listener = new ViewTreeObserver.OnPreDrawListener() {
-            @Override
-            public boolean onPreDraw() {
-                ViewGroup target = reference.get();
+            @Override public boolean onPreDraw() {
+                ViewGroup target = ref.get();
                 if (target == null) {
                     if (observer.isAlive()) observer.removeOnPreDrawListener(this);
                     return true;
                 }
-                inspectAndFix(target);
+                try {
+                    inspectAndFix(target);
+                } catch (RuntimeException | LinkageError e) {
+                    // A failed experiment must never prevent the YouTube player from drawing.
+                    report("row inspection error: " + e.getClass().getSimpleName());
+                }
                 return true;
             }
         };
         observer.addOnPreDrawListener(listener);
         overlay.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
-            @Override
-            public void onViewAttachedToWindow(View v) { }
-
-            @Override
-            public void onViewDetachedFromWindow(View v) {
+            @Override public void onViewAttachedToWindow(View view) {}
+            @Override public void onViewDetachedFromWindow(View view) {
                 if (observer.isAlive()) observer.removeOnPreDrawListener(listener);
                 synchronized (ATTACHED) {
-                    ATTACHED.remove(v);
+                    ATTACHED.remove(view);
                 }
-                v.removeOnAttachStateChangeListener(this);
+                view.removeOnAttachStateChangeListener(this);
             }
         });
-
-        Log.i(TAG, "onLayout hook reached; pre-draw observer installed; enabled="
-                + Settings.CAPTION_WINDOW_GAP_MINIMAL.get() + " overlay=" + overlay.getClass().getName());
+        Log.i(TAG, "hook installed; enabled=" + Settings.CAPTION_WINDOW_GAP_MINIMAL.get()
+                + " parent=" + overlay.getClass().getSimpleName());
     }
 
     private static void inspectAndFix(ViewGroup overlay) {
-        boolean enabled = Settings.CAPTION_WINDOW_GAP_MINIMAL.get();
-        if (!enabled) {
-            report(overlay, "preDraw reached, setting OFF");
-            return;
-        }
-        View upper = null;
-        View lower = null;
         int count = 0;
+        ViewGroup window = null;
         for (int i = 0; i < overlay.getChildCount(); i++) {
             View child = overlay.getChildAt(i);
-            if (child.getVisibility() != View.VISIBLE || !WINDOW.equals(child.getClass().getName())) continue;
-            if (child.getWidth() <= 0 || child.getHeight() <= 0) continue;
+            if (child.getVisibility() != View.VISIBLE || !WINDOW.equals(child.getClass().getName()))
+                continue;
             count++;
-            if (count == 1) upper = child;
-            else if (count == 2) lower = child;
+            if (child instanceof ViewGroup group) window = group;
         }
-        if (count != 2) {
-            report(overlay, "preDraw: visible caption window views=" + count);
-            return;
-        }
-        if (upper.getTop() > lower.getTop()) {
-            View temp = upper;
-            upper = lower;
-            lower = temp;
-        }
-
-        int spacing = Math.max(1, (int) TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_DIP, 4f, overlay.getResources().getDisplayMetrics()));
-        int[] tops = correctedTops(
-                overlay.getWidth(), overlay.getHeight(),
-                upper.getLeft(), upper.getTop(), upper.getWidth(), upper.getHeight(),
-                lower.getLeft(), lower.getTop(), lower.getWidth(), lower.getHeight(),
-                spacing);
-        if (tops == null) {
-            report(overlay, "preDraw: two windows, guard rejected; gap="
-                    + (lower.getTop() - upper.getBottom()));
+        if (count != 1 || window == null) {
+            report("visible native windows=" + count
+                    + " overlay=" + overlay.getWidth() + "x" + overlay.getHeight());
             return;
         }
 
-        upper.layout(upper.getLeft(), tops[0], upper.getRight(), tops[0] + upper.getHeight());
-        lower.layout(lower.getLeft(), tops[1], lower.getRight(), tops[1] + lower.getHeight());
-        report(overlay, "preDraw: stacked windows; tops=" + tops[0] + "," + tops[1]);
-    }
+        int numRows = window.getChildCount();
+        StringBuilder evidence = new StringBuilder("window=(")
+                .append(window.getLeft()).append(',').append(window.getTop()).append(' ')
+                .append(window.getWidth()).append('x').append(window.getHeight())
+                .append(") rows=").append(numRows);
+        if (numRows < 2 || numRows > 4) {
+            report(evidence + " native (not 2-4 rows)");
+            return;
+        }
 
-    /** No source text or identifying video information is read or logged. */
-    private static void report(ViewGroup overlay, String reason) {
-        long now = SystemClock.uptimeMillis();
-        if (now - lastReportMs < 1600) return;
-        lastReportMs = now;
+        List<CaptionRowGapPolicy.Row> rows = new ArrayList<>(numRows);
+        for (int i = 0; i < numRows; i++) {
+            View row = window.getChildAt(i);
+            evidence.append(" r").append(i).append("=(")
+                    .append(row.getLeft()).append(',').append(row.getTop()).append(' ')
+                    .append(row.getWidth()).append('x').append(row.getHeight()).append(')')
+                    .append(" vis=").append(row.getVisibility())
+                    .append(" cls=").append(row.getClass().getSimpleName());
 
-        StringBuilder message = new StringBuilder(reason);
-        message.append(" parent=").append(overlay.getWidth()).append('x').append(overlay.getHeight());
-        message.append(" children=").append(overlay.getChildCount());
-        for (int i = 0, max = Math.min(overlay.getChildCount(), 8); i < max; i++) {
-            View child = overlay.getChildAt(i);
-            message.append(" [").append(i).append(':').append(child.getClass().getSimpleName());
-            message.append('(').append(child.getLeft()).append(',').append(child.getTop());
-            message.append(' ').append(child.getWidth()).append('x').append(child.getHeight()).append(')');
-            message.append(" vis=").append(child.getVisibility());
-            if (child instanceof ViewGroup group) {
-                message.append(" nested=").append(group.getChildCount());
-                for (int j = 0, innerMax = Math.min(group.getChildCount(), 3); j < innerMax; j++) {
-                    View inner = group.getChildAt(j);
-                    message.append('/').append(inner.getClass().getSimpleName());
-                }
+            // Fail closed when YouTube does not use the expected actual text rows.
+            if (row.getVisibility() != View.VISIBLE
+                    || !ROW.equals(row.getClass().getSimpleName())) {
+                report(evidence + " native (unknown row)");
+                return;
             }
-            message.append(']');
+            rows.add(new CaptionRowGapPolicy.Row(
+                    i, row.getLeft(), row.getTop(), row.getWidth(), row.getHeight()));
         }
-        Log.i(TAG, message.toString());
+
+        if (!Settings.CAPTION_WINDOW_GAP_MINIMAL.get()) {
+            report(evidence + " setting OFF");
+            return;
+        }
+        int gapPx = Math.max(1, (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, 4.0f, window.getResources().getDisplayMetrics()));
+        int[] newTops = CaptionRowGapPolicy.plan(
+                window.getWidth(), window.getHeight(), rows, gapPx);
+        if (newTops == null) {
+            report(evidence + " native (no abnormally large inner gap)");
+            return;
+        }
+
+        for (int i = 0; i < numRows; i++) {
+            View row = window.getChildAt(i);
+            if (newTops[i] != row.getTop()) {
+                row.layout(row.getLeft(), newTops[i], row.getRight(), newTops[i] + row.getHeight());
+            }
+        }
+        report(evidence + " compacted tops=" + java.util.Arrays.toString(newTops));
     }
 
-    /** Pure layout decision. null means retain original native positioning. */
-    static int[] correctedTops(
-            int frameWidth, int frameHeight,
-            int ax, int ay, int aw, int ah,
-            int bx, int by, int bw, int bh, int spacing) {
-        if (frameWidth <= 0 || frameHeight <= 0 || aw <= 0 || bw <= 0 || ah <= 0 || bh <= 0)
-            return null;
-        if (ax < 0 || bx < 0 || ay < 0 || by < 0 ||
-                ax + aw > frameWidth || bx + bw > frameWidth ||
-                ay + ah > frameHeight || by + bh > frameHeight)
-            return null;
-
-        int horizontalOverlap = Math.min(ax + aw, bx + bw) - Math.max(ax, bx);
-        if (horizontalOverlap <= 0 || 20L * horizontalOverlap < 17L * Math.min(aw, bw))
-            return null;
-        if (Math.abs((2L * ax + aw) - (2L * bx + bw)) > frameWidth / 4L)
-            return null;
-
-        int gap = by - (ay + ah);
-        if (gap <= Math.max(spacing * 3, Math.max(ah, bh) / 2)) return null;
-
-        int lowerTop = ay + ah - bh;
-        int upperTop = lowerTop - Math.max(1, spacing) - ah;
-        if (upperTop < 0 || lowerTop < 0) return null;
-        return new int[] {upperTop, lowerTop};
+    private static void report(String message) {
+        long now = SystemClock.uptimeMillis();
+        if (now - lastReportMs < 1200) return;
+        lastReportMs = now;
+        Log.i(TAG, message);
     }
 }
