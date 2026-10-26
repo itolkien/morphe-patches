@@ -68,7 +68,7 @@ public class AutoCaptionsPatch {
      * Injection point.
      * Called before {@link #disableAutoCaptions(boolean)}.
      */
-    public static void newVideoStarted(VideoInformation.PlaybackController ignoredPlayerController) {
+    public static synchronized void newVideoStarted(VideoInformation.PlaybackController ignoredPlayerController) {
         videoGeneration.incrementAndGet();
         captionsButtonStatus.set(false);
     }
@@ -83,7 +83,7 @@ public class AutoCaptionsPatch {
     }
 
     /** Package-visible for regression tests of delayed video transitions. */
-    static boolean unlockIfCurrentVideo(int generation) {
+    static synchronized boolean unlockIfCurrentVideo(int generation) {
         return videoGeneration.get() == generation
                 && captionsButtonStatus.compareAndSet(false, true);
     }
