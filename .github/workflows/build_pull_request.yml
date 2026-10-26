@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - dev
+      - experiment/caption-window-gap-minimal
   pull_request:
     branches:
       - dev
