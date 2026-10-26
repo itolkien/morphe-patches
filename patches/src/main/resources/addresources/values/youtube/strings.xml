@@ -875,6 +875,8 @@ To fix this, turn on \'Spoof video streams\' and change the \'Default client\' t
     <string name="morphe_fix_transcript_title">Fix transcript</string>
     <string name="morphe_fix_transcript_summary">Resolves a precondition check failure that can prevent the transcript from loading</string>
     <string name="morphe_captions_in_pip_title">Show captions in picture-in-picture</string>
+    <string name="morphe_stack_translated_caption_windows_test_title">Stack separated translated subtitle windows (test)</string>
+    <string name="morphe_stack_translated_caption_windows_test_summary">Experimental: bring distant auto-translated caption boxes together without resizing fonts or editing text; disabled by default</string>
     <string name="morphe_translated_captions_keep_native_pens_test_title">Preserve original styles in auto-translated captions (test)</string>
     <string name="morphe_translated_captions_keep_native_pens_test_summary">Compare original translated caption styles with Morphe\'s default styling; some videos may have invisible captions with this enabled</string>
     <string name="morphe_caption_geometry_debug_enabled_title">Enable experimental caption geometry correction</string>
