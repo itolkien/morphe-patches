@@ -8,6 +8,7 @@ import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import app.morphe.extension.youtube.settings.Settings;
 import java.lang.ref.WeakReference;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.WeakHashMap;
@@ -153,6 +154,41 @@ public final class CaptionWindowGapPatch {
             if (last != null && now - last < 1200L) return;
             LAST_REPORT_MS.put(overlay, now);
         }
-        Log.i(TAG, message);
+        Log.i(TAG, message + inspectRootSubtitleWindows(overlay));
+    }
+
+    /**
+     * A second caption view might belong to a different overlay, not the
+     * currently inspected aose instance. Scan the root ONLY on throttled logs.
+     */
+    private static String inspectRootSubtitleWindows(ViewGroup overlay) {
+        ArrayDeque<View> pending = new ArrayDeque<>();
+        pending.add(overlay.getRootView());
+        int visited = 0;
+        int found = 0;
+        StringBuilder result = new StringBuilder(" rootCaptionViews=");
+        StringBuilder views = new StringBuilder();
+        while (!pending.isEmpty() && visited < 4000) {
+            View current = pending.removeFirst();
+            visited++;
+            if (WINDOW.equals(current.getClass().getName())) {
+                found++;
+                if (found <= 8) {
+                    int[] xy = new int[2];
+                    current.getLocationOnScreen(xy);
+                    views.append(" #").append(found).append('@')
+                            .append(xy[0]).append(',').append(xy[1])
+                            .append(' ').append(current.getWidth()).append('x')
+                            .append(current.getHeight()).append(" vis=")
+                            .append(current.getVisibility());
+                }
+            }
+            if (current instanceof ViewGroup group) {
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    pending.addLast(group.getChildAt(i));
+                }
+            }
+        }
+        return result.append(found).append(" nodes=").append(visited).append(views).toString();
     }
 }
