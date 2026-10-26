@@ -7,9 +7,11 @@ import app.morphe.patcher.patch.AppTarget
 import app.morphe.patcher.patch.Compatibility
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patches.shared.misc.settings.preference.SwitchPreference
-import app.morphe.util.addInstructionsAtControlFlowLabel
-import app.morphe.util.findInstructionIndicesReversedOrThrow
-import com.android.tools.smali.dexlib2.Opcode
+import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod.Companion.toMutable
+import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation
+import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
+import com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter
 
 private const val EXTENSION = "Lapp/morphe/extension/youtube/patches/CaptionWindowGapPatch;"
 
@@ -44,18 +46,30 @@ val captionWindowGapMinimalPatch = bytecodePatch(
             SwitchPreference("morphe_caption_window_gap_minimal", summary = true)
         )
 
-        // Hook once, after the player has positioned SubtitleWindowViews.
+        // Wrap native onLayout rather than inserting at its return instructions:
+        // optimized Android methods may reuse p0 before they return.
         val overlay = mutableClassDefBy(CaptionOverlayFingerprint.originalMethod.definingClass)
-        val onLayout = overlay.methods.single {
-            it.name == "onLayout" &&
-                it.parameterTypes == listOf("Z", "I", "I", "I", "I") &&
-                it.returnType == "V"
+        val params = listOf("Z", "I", "I", "I", "I")
+        val nativeLayout = overlay.methods.single {
+            it.name == "onLayout" && it.parameterTypes == params && it.returnType == "V"
         }
-        onLayout.findInstructionIndicesReversedOrThrow(Opcode.RETURN_VOID).forEach { index ->
-            onLayout.addInstructionsAtControlFlowLabel(
-                index,
-                "invoke-static { p0 }, $EXTENSION->afterLayout(Landroid/view/ViewGroup;)V",
-            )
-        }
+        val access = nativeLayout.accessFlags
+        nativeLayout.name = "morpheNativeOnLayout"
+        overlay.methods.add(
+            ImmutableMethod(
+                overlay.type, "onLayout",
+                params.map { ImmutableMethodParameter(it, null, null) },
+                "V", access, null, null, MutableMethodImplementation(7),
+            ).toMutable().apply {
+                addInstructions(
+                    0,
+                    """
+                        invoke-virtual/range { p0 .. p5 }, ${overlay.type}->morpheNativeOnLayout(ZIIII)V
+                        invoke-static { p0 }, $EXTENSION->afterLayout(Landroid/view/ViewGroup;)V
+                        return-void
+                    """.trimIndent(),
+                )
+            },
+        )
     }
 }
