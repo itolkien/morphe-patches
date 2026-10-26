@@ -79,10 +79,12 @@ public class AutoCaptionsPatch {
      */
     public static void videoInformationLoaded() {
         final int generation = videoGeneration.get();
-        Utils.runOnMainThreadDelayed(() -> {
-            if (videoGeneration.get() == generation) {
-                captionsButtonStatus.compareAndSet(false, true);
-            }
-        }, 150);
+        Utils.runOnMainThreadDelayed(() -> unlockIfCurrentVideo(generation), 150);
+    }
+
+    /** Package-visible for regression tests of delayed video transitions. */
+    static boolean unlockIfCurrentVideo(int generation) {
+        return videoGeneration.get() == generation
+                && captionsButtonStatus.compareAndSet(false, true);
     }
 }
