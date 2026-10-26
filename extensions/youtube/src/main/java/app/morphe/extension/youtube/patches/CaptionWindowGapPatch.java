@@ -25,7 +25,7 @@ public final class CaptionWindowGapPatch {
             "com.google.android.libraries.youtube.player.subtitles.ui.SubtitleWindowView";
     private static final String ROW = "apow";
     private static final WeakHashMap<ViewGroup, Boolean> ATTACHED = new WeakHashMap<>();
-    private static long lastReportMs;
+    private static final WeakHashMap<ViewGroup, Long> LAST_REPORT_MS = new WeakHashMap<>();
 
     private CaptionWindowGapPatch() {}
 
@@ -49,7 +49,7 @@ public final class CaptionWindowGapPatch {
                     inspectAndFix(target);
                 } catch (RuntimeException | LinkageError e) {
                     // A failed experiment must never prevent the YouTube player from drawing.
-                    report("row inspection error: " + e.getClass().getSimpleName());
+                    report(target, "row inspection error: " + e.getClass().getSimpleName());
                 }
                 return true;
             }
@@ -65,7 +65,8 @@ public final class CaptionWindowGapPatch {
                 view.removeOnAttachStateChangeListener(this);
             }
         });
-        Log.i(TAG, "hook installed; enabled=" + Settings.CAPTION_WINDOW_GAP_MINIMAL.get()
+        Log.i(TAG, "hook installed overlay@" + System.identityHashCode(overlay)
+                + " enabled=" + Settings.CAPTION_WINDOW_GAP_MINIMAL.get()
                 + " parent=" + overlay.getClass().getSimpleName());
     }
 
@@ -79,19 +80,28 @@ public final class CaptionWindowGapPatch {
             count++;
             if (child instanceof ViewGroup group) window = group;
         }
+        int[] overlayScreen = new int[2];
+        overlay.getLocationOnScreen(overlayScreen);
+        String prefix = "overlay@" + System.identityHashCode(overlay)
+                + " screen=(" + overlayScreen[0] + "," + overlayScreen[1] + ")"
+                + " size=" + overlay.getWidth() + "x" + overlay.getHeight()
+                + " root=" + overlay.getRootView().getWidth() + "x" + overlay.getRootView().getHeight();
         if (count != 1 || window == null) {
-            report("visible native windows=" + count
-                    + " overlay=" + overlay.getWidth() + "x" + overlay.getHeight());
+            report(overlay, prefix + " visible native windows=" + count);
             return;
         }
 
         int numRows = window.getChildCount();
-        StringBuilder evidence = new StringBuilder("window=(")
+        int[] windowScreen = new int[2];
+        window.getLocationOnScreen(windowScreen);
+        StringBuilder evidence = new StringBuilder(prefix)
+                .append(" windowScreen=(").append(windowScreen[0]).append(',')
+                .append(windowScreen[1]).append(") window=(")
                 .append(window.getLeft()).append(',').append(window.getTop()).append(' ')
                 .append(window.getWidth()).append('x').append(window.getHeight())
                 .append(") rows=").append(numRows);
         if (numRows < 2 || numRows > 4) {
-            report(evidence + " native (not 2-4 rows)");
+            report(overlay, evidence + " native (not 2-4 rows)");
             return;
         }
 
@@ -107,7 +117,7 @@ public final class CaptionWindowGapPatch {
             // Fail closed when YouTube does not use the expected actual text rows.
             if (row.getVisibility() != View.VISIBLE
                     || !ROW.equals(row.getClass().getSimpleName())) {
-                report(evidence + " native (unknown row)");
+                report(overlay, evidence + " native (unknown row)");
                 return;
             }
             rows.add(new CaptionRowGapPolicy.Row(
@@ -115,7 +125,7 @@ public final class CaptionWindowGapPatch {
         }
 
         if (!Settings.CAPTION_WINDOW_GAP_MINIMAL.get()) {
-            report(evidence + " setting OFF");
+            report(overlay, evidence + " setting OFF");
             return;
         }
         int gapPx = Math.max(1, (int) TypedValue.applyDimension(
@@ -123,7 +133,7 @@ public final class CaptionWindowGapPatch {
         int[] newTops = CaptionRowGapPolicy.plan(
                 window.getWidth(), window.getHeight(), rows, gapPx);
         if (newTops == null) {
-            report(evidence + " native (no abnormally large inner gap)");
+            report(overlay, evidence + " native (no abnormally large inner gap)");
             return;
         }
 
@@ -133,13 +143,16 @@ public final class CaptionWindowGapPatch {
                 row.layout(row.getLeft(), newTops[i], row.getRight(), newTops[i] + row.getHeight());
             }
         }
-        report(evidence + " compacted tops=" + java.util.Arrays.toString(newTops));
+        report(overlay, evidence + " compacted tops=" + java.util.Arrays.toString(newTops));
     }
 
-    private static void report(String message) {
+    private static void report(ViewGroup overlay, String message) {
         long now = SystemClock.uptimeMillis();
-        if (now - lastReportMs < 1200) return;
-        lastReportMs = now;
+        synchronized (LAST_REPORT_MS) {
+            Long last = LAST_REPORT_MS.get(overlay);
+            if (last != null && now - last < 1200L) return;
+            LAST_REPORT_MS.put(overlay, now);
+        }
         Log.i(TAG, message);
     }
 }
