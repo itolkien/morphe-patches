@@ -9,10 +9,13 @@
 package app.morphe.extension.youtube.patches;
 
 import androidx.annotation.Nullable;
+import android.util.Log;
+import app.morphe.extension.youtube.settings.Settings;
 
 
 @SuppressWarnings("unused")
 public class TranslatedCaptionPensPatch {
+    private static final String TAG = "MorpheCaptionStyle";
 
     /**
      * Interface to use obfuscated methods.
@@ -38,6 +41,8 @@ public class TranslatedCaptionPensPatch {
      * Caption tracks are parsed on background threads, and different tracks can be parsed at the same time.
      */
     private static final ThreadLocal<Boolean> isAutoTranslatedTrack = new ThreadLocal<>();
+    /** Avoid flooding logcat: log only the first pen of each parsed translated request. */
+    private static final ThreadLocal<Boolean> hasLoggedCurrentTrack = new ThreadLocal<>();
 
     /**
      * Injection point.
@@ -58,6 +63,7 @@ public class TranslatedCaptionPensPatch {
         }
         // A failed native getter must not leave the previous translated state enabled.
         isAutoTranslatedTrack.set(translated);
+        hasLoggedCurrentTrack.set(false);
     }
 
     /**
@@ -72,8 +78,17 @@ public class TranslatedCaptionPensPatch {
      * @return The pen id to use.
      */
     public static int getPenId(int penId) {
-        return Boolean.TRUE.equals(isAutoTranslatedTrack.get())
-                ? DEFAULT_PEN_ID
-                : penId;
+        if (!Boolean.TRUE.equals(isAutoTranslatedTrack.get())) return penId;
+
+        // Diagnostic A/B only. OFF retains Morphe's current default-pen behavior.
+        // ON retains the pen IDs present in the translated timed-text track.
+        boolean keepNative = Settings.TRANSLATED_CAPTIONS_KEEP_NATIVE_PENS_TEST.get();
+        if (!Boolean.TRUE.equals(hasLoggedCurrentTrack.get())) {
+            hasLoggedCurrentTrack.set(true);
+            Log.i(TAG, "translated track pen mapping="
+                    + (keepNative ? "native" : "morphe-default")
+                    + " originalPenId=" + penId);
+        }
+        return keepNative ? penId : DEFAULT_PEN_ID;
     }
 }
