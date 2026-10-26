@@ -4,13 +4,17 @@ import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.fieldAccess
 import app.morphe.patcher.methodCall
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+import app.morphe.patcher.extensions.InstructionExtensions.getInstruction
+import app.morphe.patches.shared.misc.settings.preference.SwitchPreference
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patches.youtube.misc.extension.sharedExtensionPatch
+import app.morphe.patches.youtube.misc.settings.settingsPatch
 import app.morphe.patches.youtube.video.information.onCreateHook
 import app.morphe.patches.youtube.video.information.videoInformationPatch
 import app.morphe.patches.youtube.shared.Constants.COMPATIBILITY_YOUTUBE
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 
 private const val FIX_CLASS =
     "Lapp/morphe/extension/youtube/patches/CaptionAspectRatioFix;"
@@ -58,14 +62,32 @@ val captionAspectRatioFixPatch = bytecodePatch(
     description = "Preserve YouTube's dynamic subtitle sizing using the observed video viewport aspect ratio.",
     default = false,
 ) {
-    dependsOn(sharedExtensionPatch, videoInformationPatch)
+    dependsOn(sharedExtensionPatch, settingsPatch, videoInformationPatch)
     compatibleWith(COMPATIBILITY_YOUTUBE)
 
     execute {
+        settingsMenuCaptionGroup.add(SwitchPreference("morphe_caption_geometry_debug_enabled", summary = true))
+
         // Avoid carrying a learned caption viewport ratio into the next video.
         onCreateHook(FIX_CLASS, "newVideoStarted")
 
         val method = captionSizeSelectorFingerprint(LegacyCaptionSizeFingerprint.originalMethod).method
+        // Diagnostic only: observe the actual return value of YouTube's font-size selector.
+        // Iterate backwards so inserting instructions cannot invalidate earlier indices.
+        val returnIndices = method.implementation!!.instructions.withIndex()
+            .filter { it.value.opcode == Opcode.RETURN }
+            .map { it.index }
+        check(returnIndices.isNotEmpty()) { "Caption selector has no float return" }
+        returnIndices.asReversed().forEach { index ->
+            val register = method.getInstruction<OneRegisterInstruction>(index).registerA
+            method.addInstructions(
+                index,
+                """
+                    invoke-static/range { v$register .. v$register }, $FIX_CLASS->traceResult(F)F
+                    move-result v$register
+                """.trimIndent(),
+            )
+        }
         // p0 = subtitle container View, p1 = YouTube's original font scale,
         // p2/p3 = calculated video-window width and height. Replacing p3 only
         // affects the inherited size formula (the compact branch ignores it).
