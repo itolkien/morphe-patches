@@ -876,6 +876,10 @@ To fix this, turn on \'Spoof video streams\' and change the \'Default client\' t
     <string name="morphe_fix_transcript_summary">Resolves a precondition check failure that can prevent the transcript from loading</string>
     <string name="morphe_captions_in_pip_title">Show captions in picture-in-picture</string>
 
+    <!-- layout.captions.captionAlignmentPatch -->
+    <string name="morphe_center_left_aligned_captions_title">Center left-aligned captions (experimental)</string>
+    <string name="morphe_center_left_aligned_captions_summary">Center subtitles that YouTube would left-align. May also affect intentionally positioned captions.</string>
+
     <!-- layout.buttons.navigation.navigationButtonsPatch -->
     <string name="morphe_navigation_buttons_screen_title">Navigation buttons</string>
     <string name="morphe_navigation_buttons_screen_summary">Choose which buttons appear in the bottom navigation bar</string>
