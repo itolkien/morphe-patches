@@ -1,4 +1,4 @@
-# Near-square caption geometry experiment (v6 baseline + video-reset candidate)
+# Near-square caption geometry experiment (v6 baseline + video-ID reset candidate)
 
 This branch preserves the tested **v6** experiment for later refinement. It is **not ready for upstream merge**.
 
@@ -11,7 +11,7 @@ v6 leaves YouTube's `nll.f(FII)F` selector and original `aose.f(FII)F` font form
 - Fingerprint locates selector using its parent size calculator.
 - `normalizeHeight(View, float, int, int)` is called at the start of that selector.
 - Near-square means landscape with height >= 75% of width.
-- Per-view stable ratio with weak references; 20-second fallback to a recent stable ratio.\n- **New unverified change:** the video lifecycle hook clears both per-view state and recent fallback when a new video begins; this prevents inheriting the previous video's aspect ratio. This change has not been re-tested in the APK.
+- Per-view stable ratio with weak references; 20-second fallback to a recent stable ratio.\n- **New unverified change:** a deduplicated `hookVideoId` callback clears per-view and recent fallback ratios when the actual displayed video ID changes. This replaces the previous player-constructor reset, which did not reliably fire on consecutive videos. This change has **not** yet been APK-tested.
 - Without a known stable ratio, original height is left unchanged.
 - Diagnostic tag: `MorpheCaptionFix`.
 
@@ -30,7 +30,7 @@ v6 leaves YouTube's `nll.f(FII)F` selector and original `aose.f(FII)F` font form
 - [ ] Test cold-start directly in fullscreen (no learned reference) and orientation transitions.
 - [ ] Check videos with different caption styling and YouTube caption-size preferences.
 - [ ] Verify supported YouTube versions; currently only 21.23.492 is reported tested.
-- [ ] Verify new video-start hook fires on YouTube 21.23.492 and does not disable valid same-video normal→fullscreen reference sharing.\n- [ ] Check no stale cross-video or cross-view ratio leaks, and ensure the reference viewport really corresponds to the displayed media.
+- [ ] Verify `video ID changed: cleared cached viewport ratios` logs once per distinct video ID (16:9→4:3→16:9), but not again for repeated events during the same video.\n- [ ] Check no stale cross-video or cross-view ratio leaks, and ensure the reference viewport really corresponds to the displayed media.
 - [ ] Evaluate logs, allocations, synchronization, and simplify for release.
 - [ ] Confirm clean Gradle/MPP build and APK validation for the eventual final commit.
 
@@ -46,3 +46,11 @@ Enable `Fix caption size on near-square screens (test)` alongside the required `
 - Draft PR #9: Opt-in centering of captions YouTube left-aligns (alignment).
 
 Both remain separate from this geometry PR; neither changes baseline v6 behaviour unless explicitly built and installed.
+
+## Latest device findings (2026-10-26, full Morphe patch set)
+
+A/B test measured YouTube's native float font result as 46.857143 with geometry OFF and 29.238094 with geometry ON for the same 2184×1968 unfolded fullscreen input. With correction ON, the effective viewport was 2184×1228, learned from 1641×923. Normal ON inputs (1528×859 and 1641×923) passed through unchanged.
+
+Subsequent `caption-aspect-test.log` (user test of 16:9→4:3→16:9) recorded only **one** `video started` reset but multiple different stable references: 1080×608 (0.56296), 2520×1080 (0.42857), 1968×1107 (0.5625) and 1914×1094 (0.57158). There was no direct 4:3 (0.75) stable reference in the log, so this **does not prove** the patch safely handles real 4:3 caption geometry. The observed single reset motivated the switch to an actual video ID hook.
+
+Recompile/repatch **full Morphe** after this change; the old MPP does not contain the new video-ID hook. Do not merge until the renewed multi-video device test passes.
