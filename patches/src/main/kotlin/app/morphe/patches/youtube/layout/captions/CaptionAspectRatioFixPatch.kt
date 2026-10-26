@@ -6,8 +6,8 @@ import app.morphe.patcher.methodCall
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patches.youtube.misc.extension.sharedExtensionPatch
-import app.morphe.patches.youtube.video.information.onCreateHook
-import app.morphe.patches.youtube.video.information.videoInformationPatch
+import app.morphe.patches.youtube.video.videoid.hookVideoId
+import app.morphe.patches.youtube.video.videoid.videoIdPatch
 import app.morphe.patches.youtube.shared.Constants.COMPATIBILITY_YOUTUBE
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
@@ -58,12 +58,13 @@ val captionAspectRatioFixPatch = bytecodePatch(
     description = "Preserve YouTube's dynamic subtitle sizing using the observed video viewport aspect ratio.",
     default = false,
 ) {
-    dependsOn(sharedExtensionPatch, videoInformationPatch)
+    dependsOn(sharedExtensionPatch, videoIdPatch)
     compatibleWith(COMPATIBILITY_YOUTUBE)
 
     execute {
-        // Avoid carrying a learned caption viewport ratio into the next video.
-        onCreateHook(FIX_CLASS, "newVideoStarted")
+        // The same player controller can be reused for multiple videos.
+        // Clear learned viewport ratios only when the actual video ID changes.
+        hookVideoId("$FIX_CLASS->onVideoId(Ljava/lang/String;)V")
 
         val method = captionSizeSelectorFingerprint(LegacyCaptionSizeFingerprint.originalMethod).method
         // p0 = subtitle container View, p1 = YouTube's original font scale,
