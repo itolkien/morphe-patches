@@ -28,17 +28,25 @@ public final class CaptionAspectRatioFix {
 
     private CaptionAspectRatioFix() {}
 
+    /** The video ID hook can fire repeatedly for the same video. */
+    private static String currentVideoId;
+
     /**
-     * Playback lifecycle hook. Caption views may be retained across videos;
-     * never reuse geometry observed for an earlier video or audio track.
+     * Reset learned viewport geometry only when the actual video changes.
+     * The player controller can be reused across video navigation.
      */
-    public static void newVideoStarted(VideoInformation.PlaybackController ignoredController) {
+    public static void onVideoId(String videoId) {
+        if (videoId == null || videoId.isEmpty()) return;
+
         synchronized (STATES) {
+            if (videoId.equals(currentVideoId)) return;
+            currentVideoId = videoId;
             STATES.clear();
             recentStableAspect = Float.NaN;
             recentStableTimeMs = 0L;
         }
-        Log.i(TAG, "video started: cleared cached viewport ratios");
+        // Keep the video ID private: only report that a switch was observed.
+        Log.i(TAG, "video ID changed: cleared cached viewport ratios");
     }
 
     private static final class State {
