@@ -77,18 +77,23 @@ public class TranslatedCaptionPensPatch {
      * @param penId Pen id of a timed text element.
      * @return The pen id to use.
      */
-    public static int getPenId(int penId) {
-        if (!Boolean.TRUE.equals(isAutoTranslatedTrack.get())) return penId;
+    public static boolean isTranslatedTrack() {
+        return Boolean.TRUE.equals(isAutoTranslatedTrack.get());
+    }
 
-        // Diagnostic A/B only. OFF retains Morphe's current default-pen behavior.
-        // ON retains the pen IDs present in the translated timed-text track.
-        boolean keepNative = Settings.TRANSLATED_CAPTIONS_KEEP_NATIVE_PENS_TEST.get();
+    public static int getPenId(int penId) {
+        if (!isTranslatedTrack()) return penId;
+        boolean keepNative = Settings.TRANSLATED_CAPTIONS_KEEP_NATIVE_PENS_TEST.get()
+                || TranslatedCaptionLayoutPatch.isActive();
         if (!Boolean.TRUE.equals(hasLoggedCurrentTrack.get())) {
             hasLoggedCurrentTrack.set(true);
-            Log.i(TAG, "translated track pen mapping="
-                    + (keepNative ? "native" : "morphe-default")
+            Log.i(TAG, "translated track pen mapping=" + (keepNative ? "native" : "morphe-default")
                     + " originalPenId=" + penId);
         }
-        return keepNative ? penId : DEFAULT_PEN_ID;
+        return getPenId(penId, keepNative);
+    }
+
+    static int getPenId(int penId, boolean keepNative) {
+        return isTranslatedTrack() && !keepNative ? DEFAULT_PEN_ID : penId;
     }
 }

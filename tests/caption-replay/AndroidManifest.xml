@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.morphe.captionreplay">
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="30" />
+    <application android:label="Caption controlled replay" android:debuggable="true" android:testOnly="true" />
+    <instrumentation android:name="app.morphe.captionreplay.CaptionReplay" android:targetPackage="app.morphe.captionlayoutlab" android:label="Caption controlled replay" />
+</manifest>

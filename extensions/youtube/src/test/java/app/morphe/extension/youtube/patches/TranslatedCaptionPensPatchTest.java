@@ -35,29 +35,29 @@ public class TranslatedCaptionPensPatchTest {
 
     @Test public void translatedTrackUsesDefaultPen() {
         TranslatedCaptionPensPatch.setParsedRequest(TRANSLATED);
-        assertEquals(DEFAULT_PEN, TranslatedCaptionPensPatch.getPenId(7));
-        assertEquals(DEFAULT_PEN, TranslatedCaptionPensPatch.getPenId(0));
+        assertEquals(DEFAULT_PEN, TranslatedCaptionPensPatch.getPenId(7, false));
+        assertEquals(DEFAULT_PEN, TranslatedCaptionPensPatch.getPenId(0, false));
     }
 
     @Test public void originalTrackParsedAfterTranslatedKeepsPens() {
         // Cached original tracks are parsed without a new url request.
         TranslatedCaptionPensPatch.setParsedRequest(TRANSLATED);
         TranslatedCaptionPensPatch.setParsedRequest(ORIGINAL);
-        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7));
+        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7, false));
     }
 
     @Test public void otherRequestsKeepPens() {
         TranslatedCaptionPensPatch.setParsedRequest(TRANSLATED);
         TranslatedCaptionPensPatch.setParsedRequest(new Object());
-        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7));
+        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7, false));
 
         TranslatedCaptionPensPatch.setParsedRequest(TRANSLATED);
         TranslatedCaptionPensPatch.setParsedRequest(new Request("not a track"));
-        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7));
+        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7, false));
 
         TranslatedCaptionPensPatch.setParsedRequest(TRANSLATED);
         TranslatedCaptionPensPatch.setParsedRequest(null);
-        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7));
+        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7, false));
     }
 
     @Test public void failedNativeGetterClearsPreviousTranslationState() {
@@ -65,12 +65,12 @@ public class TranslatedCaptionPensPatchTest {
         TranslatedCaptionPensPatch.setParsedRequest((TranslatedCaptionPensPatch.CaptionRequestInterface) () -> {
             throw new IllegalStateException("getter unavailable");
         });
-        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7));
+        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7, false));
         TranslatedCaptionPensPatch.setParsedRequest(TRANSLATED);
         TranslatedCaptionPensPatch.setParsedRequest((TranslatedCaptionPensPatch.CaptionRequestInterface) () -> {
             throw new NoSuchMethodError("native ABI changed");
         });
-        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7));
+        assertEquals(7, TranslatedCaptionPensPatch.getPenId(7, false));
     }
 
     @Test public void concurrentParsersDoNotShareState() throws Exception {
@@ -82,13 +82,13 @@ public class TranslatedCaptionPensPatchTest {
             TranslatedCaptionPensPatch.setParsedRequest(TRANSLATED);
             bothSet.countDown();
             awaitQuietly(bothSet);
-            translatedPen.set(TranslatedCaptionPensPatch.getPenId(7));
+            translatedPen.set(TranslatedCaptionPensPatch.getPenId(7, false));
         });
         Thread original = new Thread(() -> {
             TranslatedCaptionPensPatch.setParsedRequest(ORIGINAL);
             bothSet.countDown();
             awaitQuietly(bothSet);
-            originalPen.set(TranslatedCaptionPensPatch.getPenId(7));
+            originalPen.set(TranslatedCaptionPensPatch.getPenId(7, false));
         });
         translated.start();
         original.start();

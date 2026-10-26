@@ -1731,4 +1731,8 @@ Automatic recording is optional. It stops in incognito or when the account chang
     <string name="morphe_series_tracker_no_search_results">No series found</string>
     <string name="morphe_series_tracker_untitled_episode">Untitled episode</string>
     <string name="morphe_series_tracker_unavailable_episode">Unavailable episode</string>
+    <string name="morphe_translated_captions_reflow_test_title">Reflow auto-translated caption windows (test)</string>
+    <string name="morphe_translated_captions_reflow_test_summary">Translated-only layout experiment; restart the app after changing.</string>
+    <string name="morphe_translated_captions_reflow_test_summary_on">Combine simultaneous translated windows and let YouTube wrap the visible text. Restart the app after changing.</string>
+    <string name="morphe_translated_captions_reflow_test_summary_off">Keep native translated caption windows. Restart the app after changing.</string>
 </resources>

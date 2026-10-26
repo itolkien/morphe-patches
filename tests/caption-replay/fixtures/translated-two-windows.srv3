@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<timedtext format="3"><head>
+<pen id="1" sz="50" fo="0" fc="#000000" b="1" i="1" u="1"/>
+<wp id="1" ap="7" ah="50" av="80"/><wp id="2" ap="7" ah="50" av="95"/>
+<ws id="1" mh="0" ju="2"/>
+</head><body>
+<p t="1000" d="2000" wp="1" ws="1"><s p="1">first
+line</s></p>
+<p t="1500" d="2500" wp="2" ws="1"><s p="1">second line</s></p>
+</body></timedtext>
