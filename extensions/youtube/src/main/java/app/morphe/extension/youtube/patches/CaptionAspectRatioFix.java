@@ -28,6 +28,19 @@ public final class CaptionAspectRatioFix {
 
     private CaptionAspectRatioFix() {}
 
+    /**
+     * Playback lifecycle hook. Caption views may be retained across videos;
+     * never reuse geometry observed for an earlier video or audio track.
+     */
+    public static void newVideoStarted(VideoInformation.PlaybackController ignoredController) {
+        synchronized (STATES) {
+            STATES.clear();
+            recentStableAspect = Float.NaN;
+            recentStableTimeMs = 0L;
+        }
+        Log.i(TAG, "video started: cleared cached viewport ratios");
+    }
+
     private static final class State {
         float stableAspect = Float.NaN;
         float candidateAspect = Float.NaN;
