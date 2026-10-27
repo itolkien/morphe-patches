@@ -76,4 +76,9 @@ public class TranslatedCaptionPensPatch {
                 ? DEFAULT_PEN_ID
                 : penId;
     }
+
+    /** Exposes parser-scoped track provenance to the opt-in newline workaround. */
+    public static boolean isTranslatedTrack() {
+        return Boolean.TRUE.equals(isAutoTranslatedTrack.get());
+    }
 }
