@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - dev
+      - experiment/caption-source-render-probe
   pull_request:
     branches:
       - dev
