@@ -28,7 +28,11 @@ public final class TranslatedCaptionHardBreakPatch {
 
     /** Called inside the native XML parse thread when its timeline is constructed. */
     public static boolean captureTranslation() {
-        return TranslatedCaptionPensPatch.isTranslatedTrack();
+        boolean translated = TranslatedCaptionPensPatch.isTranslatedTrack();
+        if (Settings.TRANSLATED_CAPTIONS_FLATTEN_BREAKS_TEST.get()) {
+            Log.i(TAG, "native caption timeline captured translated=" + translated);
+        }
+        return translated;
     }
 
     /** Called after the unmodified native YouTube apnt.c(long) samples the timeline. */
