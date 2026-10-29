@@ -22,6 +22,7 @@ import app.morphe.patcher.string
 import app.morphe.patcher.resource.ResourceType
 import app.morphe.patcher.resourceLiteral
 import app.morphe.patches.shared.CurrentAudioVideoFormatToStringFingerprint
+import app.morphe.patches.youtube.video.information.VideoQualitySetterFingerprint
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference
@@ -291,6 +292,43 @@ internal object SampleHolderDiscardBufferBeforeSegmentFingerprint : Fingerprint(
     )
 )
 
+/**
+ * The method of the buffered media of a track that saves the end time of its first segment.
+ * The media before a time is cleared only if the time is after it.
+ */
+internal object MediaSegmentHolderSetFirstSegmentEndTimeFingerprint : Fingerprint(
+    definingClass = "Lcom/google/android/libraries/youtube/media/player/exo2/platypus/mediapush/MediaSegmentHolder;",
+    returnType = "V",
+    parameters = listOf(),
+    filters = listOf(
+        methodCall(smali = "Ljava/util/List;->isEmpty()Z"),
+        methodCall(
+            definingClass = "Lcom/google/android/libraries/youtube/media/player/exo2/platypus/mediapush/BufferedMediaSegment;",
+            returnType = "J",
+            parameters = listOf()
+        ),
+        fieldAccess(opcode = Opcode.IPUT_WIDE, definingClass = "this", type = "J")
+    )
+)
+
+/**
+ * The method of the media source that clears the media buffered before the playback time,
+ * called by the player while the video is loaded.
+ */
+internal object MediaPushMediaSourceDiscardBufferFingerprint : Fingerprint(
+    definingClass = "Lcom/google/android/libraries/youtube/media/player/exo2/platypus/mediapush/MediaPushMediaSource;",
+    returnType = "V",
+    parameters = listOf("J"),
+    filters = listOf(
+        fieldAccess(
+            opcode = Opcode.SGET_WIDE,
+            definingClass = "Lcom/google/android/libraries/youtube/media/player/exo2/platypus/live/LiveTimeline;"
+        ),
+        fieldAccess(opcode = Opcode.IGET_OBJECT, definingClass = "this", type = BUFFER_MANAGER_CLASS),
+        methodCall(smali = "Ljava/lang/Math;->max(JJ)J")
+    )
+)
+
 internal fun getCurrentVideoFormatConstructorFingerprint(
     videoQualityArray: String
 ) = object : Fingerprint(
@@ -356,6 +394,67 @@ internal fun getPlaybackStartParametersConstructorFingerprint(
         )
     )
 ) {}
+
+/**
+ * The method that returns the initial video quality of the playback start parameters,
+ * used by the player each time it loads the video, such as when the app returns from the background.
+ */
+internal fun getPlaybackStartParametersInitialResolutionFingerprint(
+    initialResolutionField: FieldReference
+) = object : Fingerprint(
+    returnType = "Ljava/lang/Integer;",
+    parameters = listOf(),
+    filters = listOf(
+        fieldAccess(
+            opcode = Opcode.IGET_OBJECT,
+            reference = initialResolutionField
+        ),
+        methodCall(smali = "Lj\$/util/Optional;->orElse(Ljava/lang/Object;)Ljava/lang/Object;"),
+        checkCast("Ljava/lang/Integer;")
+    )
+) {}
+
+/**
+ * A method of the class of [getPlaybackStartParametersInitialResolutionFingerprint] that gets
+ * the playback start descriptor of its player, which has the video the player loads.
+ */
+internal fun getPlayerPlaybackStartDescriptorFingerprint(
+    playbackStartParametersGetterClass: String,
+    playbackStartDescriptorClass: String
+) = Fingerprint(
+    definingClass = playbackStartParametersGetterClass,
+    filters = listOf(
+        fieldAccess(
+            opcode = Opcode.IGET_OBJECT,
+            definingClass = "this"
+        ),
+        methodCall(
+            returnType = playbackStartDescriptorClass,
+            parameters = listOf(),
+            location = MatchAfterImmediately()
+        )
+    )
+)
+
+/**
+ * The method of [VideoQualitySetterFingerprint] that sets the qualities the quality menu shows.
+ */
+internal fun getVideoQualityMenuQualitiesFingerprint(
+    videoQualityMenuClass: String,
+    videoQualityArrayType: String
+) = Fingerprint(
+    classFingerprint = VideoQualitySetterFingerprint,
+    returnType = "V",
+    parameters = listOf("[L", "I", "Z"),
+    strings = listOf("menu_item_video_quality"),
+    filters = listOf(
+        fieldAccess(
+            opcode = Opcode.IPUT_OBJECT,
+            definingClass = videoQualityMenuClass,
+            type = videoQualityArrayType
+        )
+    )
+)
 
 private object VideoQualityItemOnClickParentFingerprint : Fingerprint(
     returnType = "V",

@@ -12,6 +12,8 @@ import static app.morphe.extension.shared.sponsorblock.objects.CategoryBehaviour
 import static app.morphe.extension.shared.sponsorblock.objects.CategoryBehaviour.SKIP_AUTOMATICALLY;
 import static app.morphe.extension.shared.sponsorblock.objects.CategoryBehaviour.SKIP_AUTOMATICALLY_ONCE;
 
+import android.os.Build;
+
 import java.util.List;
 
 import app.morphe.extension.shared.Logger;
@@ -406,6 +408,8 @@ public class Settings extends SharedYouTubeSettings {
     public static final StringSetting CAPTION_COOKIES = new StringSetting("morphe_caption_cookies", "", true, parent(SET_CAPTION_COOKIES));
     public static final BooleanSetting FIX_TRANSCRIPT = new BooleanSetting("morphe_fix_transcript", TRUE, true);
     public static final BooleanSetting CAPTIONS_IN_PIP = new BooleanSetting("morphe_captions_in_pip", TRUE);
+    public static final BooleanSetting STABLE_CAPTION_BLOCKS = new BooleanSetting("morphe_stable_caption_blocks", FALSE, true,
+            () -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q);
 
     // Miniplayer
     public static final BooleanSetting MINIPLAYER_DISABLE_RESUMING = new BooleanSetting("morphe_miniplayer_disable_resuming", FALSE, true);
@@ -553,7 +557,7 @@ public class Settings extends SharedYouTubeSettings {
     public static final BooleanSetting TABLET_LAYOUT_IN_PLAYER = new BooleanSetting("morphe_tablet_layout_in_player", FALSE, true, new TabletLayoutInPlayerAvailability());
     public static final BooleanSetting BYPASS_IMAGE_REGION_RESTRICTIONS = new BooleanSetting("morphe_bypass_image_region_restrictions", FALSE, true);
     public static final BooleanSetting GRADIENT_LOADING_SCREEN = new BooleanSetting("morphe_gradient_loading_screen", FALSE, true);
-    public static final BooleanSetting RIVE_SPLASH_SCREEN_STARTING = new BooleanSetting("morphe_rive_splash_screen_starting", FALSE, false, false);
+    public static final IntegerSetting RIVE_SPLASH_SCREEN_STATE = new IntegerSetting("morphe_rive_splash_screen_state", 0, false, false);
     public static final EnumSetting<HeaderLogo> HEADER_LOGO = new EnumSetting<>("morphe_header_logo", HeaderLogo.DEFAULT, true);
     public static final BooleanSetting DISABLE_SIGN_IN_TO_TV_POPUP = new BooleanSetting("morphe_disable_sign_in_to_tv_popup", FALSE);
     public static final BooleanSetting DISABLE_CONNECT_YOUR_DEVICES_POPUP = new BooleanSetting("morphe_disable_connect_your_devices_popup", FALSE);
@@ -1046,9 +1050,10 @@ public class Settings extends SharedYouTubeSettings {
             RESTORE_OLD_PLAYER_BUTTONS.resetToDefault();
         }
 
-        // The Rive startup animation requires 21.39+.
-        if (!VersionCheckPatch.IS_21_39_OR_GREATER
-                && SharedYouTubeSettings.SPLASH_SCREEN_STYLE.get() == SplashScreenAnimationStyle.RIVE_GLOW) {
+        // The glow startup animation requires 21.39+, and Morphe Glow requires 21.30+.
+        SplashScreenAnimationStyle splashScreenStyle = SharedYouTubeSettings.SPLASH_SCREEN_STYLE.get();
+        if (splashScreenStyle == SplashScreenAnimationStyle.RIVE_GLOW && !VersionCheckPatch.IS_21_39_OR_GREATER
+                || splashScreenStyle.isRiveGlowMorphe() && !VersionCheckPatch.IS_21_30_OR_GREATER) {
             Logger.printInfo(() -> "Resetting Rive splash screen animation style");
             SharedYouTubeSettings.SPLASH_SCREEN_STYLE.resetToDefault();
         }
