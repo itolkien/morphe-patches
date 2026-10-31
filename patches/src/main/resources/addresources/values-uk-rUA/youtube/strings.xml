@@ -515,7 +515,6 @@ Second \"item\" text"</string>
   <string name="morphe_external_downloader_quick_audio">Аудіо</string>
   <string name="morphe_external_downloader_quick_options">Усі параметри</string>
   <string name="morphe_shorts_download_flyout_button_title">Показувати \"Завантаження\" в меню Shorts</string>
-  <string name="morphe_shorts_download_flyout_button_summary">Додає до плеєра Shorts пункт спливного меню зовнішнього завантажувача</string>
   <string name="morphe_shorts_download_flyout_title">Завантажити</string>
   <!-- video.voiceovertranslation.voiceOverTranslationPatch -->
   <string name="morphe_vot_screen_title">Голосовий переклад</string>
@@ -623,10 +622,6 @@ Second \"item\" text"</string>
   <string name="morphe_save_to_watch_later_flyout_title">\"Зберегти для перегляду пізніше\"</string>
   <string name="morphe_save_to_watch_later_flyout_button_title">Показувати кнопку \"Зберегти в \'Дивитися пізніше\'\" у спливному меню налаштувань плеєра</string>
   <string name="morphe_save_to_watch_later_flyout_button_summary">Дозволяє зберегти поточне відео, що переглядається, у \"Дивитися пізніше\" зі спливного меню налаштувань відео</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_title">Показувати кнопку \"Зберегти для перегляду пізніше\" у дитячих відео</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_summary">Дозволяє зберегти відео для дітей у \"Дивитися пізніше\" зі спливного меню</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_title">Показувати кнопку \"Зберегти в \'Дивитися пізніше\'\" у спливному меню Shorts</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_summary">Дозволяє зберегти Shorts в \"Дивитися пізніше\" зі спливного меню</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_title">Перенаправляти \"Дивитися пізніше\" до списку відтворення</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_summary">Переглянути пізніше</string>
   <string name="morphe_queue_flyout_title">Додати до черги Morphe</string>
@@ -874,8 +869,6 @@ Second \"item\" text"</string>
   <string name="morphe_fix_transcript_title">Виправити транскрипцію</string>
   <string name="morphe_fix_transcript_summary">Усуває помилку перевірки передумов, яка може перешкоджати завантаженню транскрипції</string>
   <string name="morphe_captions_in_pip_title">Показувати субтитри в режимі \"Картинка в картинці\"</string>
-  <string name="morphe_stable_caption_blocks_title">Стабільні блоки субтитрів</string>
-  <string name="morphe_stable_caption_blocks_summary">Групує автоматичні субтитри в стабільні, зручні для читання блоки. Деякі слова можуть з\'являтися до того, як їх вимовлять. Потрібен перезапуск</string>
   <!-- layout.buttons.navigation.navigationButtonsPatch -->
   <string name="morphe_navigation_buttons_screen_title">Кнопки панелі навігації</string>
   <string name="morphe_navigation_buttons_screen_summary">Виберіть, які кнопки будуть показуватися на нижній панелі навігації</string>

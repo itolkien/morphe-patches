@@ -516,7 +516,6 @@ Nachdem ein Video mit der Ask-Schaltfläche einmal geöffnet wurde, funktioniert
   <string name="morphe_external_downloader_quick_audio">Audio</string>
   <string name="morphe_external_downloader_quick_options">Alle Optionen</string>
   <string name="morphe_shorts_download_flyout_button_title">Downloads in Shorts-Menü anzeigen</string>
-  <string name="morphe_shorts_download_flyout_button_summary">Fügt dem Shorts-Player eine externe Download-Option im Flyout-Menü hinzu</string>
   <string name="morphe_shorts_download_flyout_title">Herunterladen</string>
   <!-- video.voiceovertranslation.voiceOverTranslationPatch -->
   <string name="morphe_vot_screen_title">Sprachausgabe-Übersetzung</string>
@@ -624,10 +623,6 @@ Info: Funktioniert möglicherweise nicht bei Livestreams"</string>
   <string name="morphe_save_to_watch_later_flyout_title">Später ansehen</string>
   <string name="morphe_save_to_watch_later_flyout_button_title">Schaltfläche zum Speichern in „Später ansehen“ im Flyout der Player-Einstellungen anzeigen</string>
   <string name="morphe_save_to_watch_later_flyout_button_summary">Ermöglicht das Speichern des aktuell angesehenen Videos in \'Später ansehen\' über das Flyout der Videoeinstellungen</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_title">Schaltfläche \'Später ansehen\' in Kinder-Videos anzeigen</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_summary">Ermöglicht das Speichern von kinderbezogenen Videos in \'Später ansehen\' über das Flyout-Menü</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_title">Zeige die Schaltfläche \'Speichern in Später ansehen\' im Shorts-Flyout</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_summary">Ermöglicht das Speichern von Shorts in \'Später ansehen\' über das Flyout-Menü</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_title">\"Später ansehen\" an Playlist weiterleiten</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_summary">Später ansehen</string>
   <string name="morphe_queue_flyout_title">Zur Morphe-Warteschlange hinzufügen</string>
@@ -875,8 +870,6 @@ Um das zu beheben, aktiviere 'Video-Streams vortäuschen' und ändere den 'Stand
   <string name="morphe_fix_transcript_title">Transkript reparieren</string>
   <string name="morphe_fix_transcript_summary">Behebt einen Fehler bei der Vorbedingungsprüfung, der das Laden des Transkripts verhindern kann.</string>
   <string name="morphe_captions_in_pip_title">Untertitel im Picture-in-Picture anzeigen</string>
-  <string name="morphe_stable_caption_blocks_title">Stabile Untertitelblöcke</string>
-  <string name="morphe_stable_caption_blocks_summary">Automatische Untertitel in stabilen, lesbaren Blöcken gruppieren. Einige Wörter können erscheinen, bevor sie gesprochen werden. Neustart erforderlich.</string>
   <!-- layout.buttons.navigation.navigationButtonsPatch -->
   <string name="morphe_navigation_buttons_screen_title">Navigationstasten</string>
   <string name="morphe_navigation_buttons_screen_summary">Wähle aus, welche Schaltflächen in der unteren Navigationsleiste angezeigt werden sollen</string>

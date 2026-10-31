@@ -17,6 +17,7 @@ import android.os.Build;
 import java.util.List;
 
 import app.morphe.extension.shared.Logger;
+import app.morphe.extension.youtube.patches.CaptionTracks;
 import app.morphe.extension.shared.StringRef;
 import app.morphe.extension.shared.patches.CustomFontPatch.FontType;
 import app.morphe.extension.shared.patches.DownloadMode;
@@ -80,6 +81,7 @@ import app.morphe.extension.youtube.patches.dearrow.DeArrowPatch.StillImagesAvai
 import app.morphe.extension.youtube.patches.dearrow.DeArrowPatch.ThumbnailOption;
 import app.morphe.extension.youtube.patches.dearrow.DeArrowPatch.ThumbnailStillTime;
 import app.morphe.extension.youtube.patches.spoof.SpoofVideoStreamsPatch.SpoofClientAv1Availability;
+import app.morphe.extension.youtube.patches.theme.ThemePatch.RiveSplashScreenDurationAvailability;
 import app.morphe.extension.youtube.patches.voiceovertranslation.VoiceOverTranslationPatch;
 import app.morphe.extension.youtube.patches.voiceovertranslation.VoiceOverTranslationPatch.MyMemoryServiceAvailability;
 import app.morphe.extension.youtube.patches.voiceovertranslation.VoiceOverTranslationPatch.OpenRouterServiceAvailability;
@@ -153,6 +155,7 @@ public class Settings extends SharedYouTubeSettings {
     // Feed
     public static final BooleanSetting HIDE_ACCOUNT_MENU = new BooleanSetting("morphe_hide_account_menu", FALSE);
     public static final StringSetting HIDE_ACCOUNT_MENU_FILTER_STRINGS = new StringSetting("morphe_hide_account_menu_filter_strings", "", true, parent(HIDE_ACCOUNT_MENU));
+    public static final BooleanSetting HIDE_ACCOUNT_MENU_DOWNLOADS = new BooleanSetting("morphe_hide_account_menu_downloads", FALSE, parent(HIDE_ACCOUNT_MENU));
     public static final BooleanSetting HIDE_ALBUM_CARDS = new BooleanSetting("morphe_hide_album_cards", FALSE, true);
     public static final BooleanSetting HIDE_ARTIST_CARDS = new BooleanSetting("morphe_hide_artist_cards", FALSE);
     public static final BooleanSetting HIDE_CHANNEL_BUTTONS = new BooleanSetting("morphe_hide_channel_buttons", FALSE);
@@ -310,7 +313,8 @@ public class Settings extends SharedYouTubeSettings {
     public static final BooleanSetting SANITIZE_VIDEO_SUBTITLE = new BooleanSetting("morphe_sanitize_video_subtitle", FALSE);
     public static final BooleanSetting EXTERNAL_DOWNLOADER_QUICK_MENU = new BooleanSetting("morphe_external_downloader_quick_menu", FALSE, new ExternalDownloaderAvailability());
     public static final BooleanSetting EXTERNAL_DOWNLOADER_MARK_WATCHED = new BooleanSetting("morphe_external_downloader_mark_watched", FALSE, new ExternalDownloaderAvailability());
-    public static final BooleanSetting SHORTS_DOWNLOAD_FLYOUT_BUTTON = new BooleanSetting("morphe_shorts_download_flyout_button", TRUE, DOWNLOAD_MODE.availability(DownloadMode.EXTERNAL));
+    public static final BooleanSetting SHORTS_DOWNLOAD_FLYOUT_BUTTON = new BooleanSetting("morphe_shorts_download_flyout_button", TRUE, DOWNLOAD_MODE.availability(DownloadMode.EXTERNAL, DownloadMode.IN_APP));
+    public static final StringSetting EXPORT_DOWNLOAD_FOLDER = new StringSetting("morphe_export_download_folder", "", DOWNLOAD_MODE.availability(DownloadMode.DEFAULT, DownloadMode.IN_APP));
 
     // Overlay buttons
     public static final BooleanSetting FULLSCREEN_VIDEO_SCALE_BUTTON = new BooleanSetting("morphe_fullscreen_video_scale_button", FALSE, true);
@@ -343,8 +347,6 @@ public class Settings extends SharedYouTubeSettings {
     public static final BooleanSetting VIDEO_DELAY_FLYOUT_BUTTON = new BooleanSetting("morphe_video_delay_button_flyout", FALSE);
     public static final BooleanSetting SAVE_TO_WATCH_LATER_OVERLAY_BUTTON = new BooleanSetting("morphe_save_to_watch_later_button", FALSE);
     public static final BooleanSetting SAVE_TO_WATCH_LATER_FLYOUT_BUTTON = new BooleanSetting("morphe_save_to_watch_later_flyout_button", FALSE);
-    public static final BooleanSetting KIDS_SAVE_TO_WATCH_LATER_FLYOUT_BUTTON = new BooleanSetting("morphe_save_to_watch_later_kids_flyout_button", TRUE);
-    public static final BooleanSetting SHORTS_SAVE_TO_WATCH_LATER_FLYOUT_BUTTON = new BooleanSetting("morphe_save_to_watch_later_shorts_flyout_button", TRUE);
     /**
      * Playlist ID selected in the picker. Empty to keep the stock Watch later playlist.
      */
@@ -412,8 +414,11 @@ public class Settings extends SharedYouTubeSettings {
     public static final StringSetting CAPTION_COOKIES = new StringSetting("morphe_caption_cookies", "", true, parent(SET_CAPTION_COOKIES));
     public static final BooleanSetting FIX_TRANSCRIPT = new BooleanSetting("morphe_fix_transcript", TRUE, true);
     public static final BooleanSetting CAPTIONS_IN_PIP = new BooleanSetting("morphe_captions_in_pip", TRUE);
-    public static final BooleanSetting STABLE_CAPTION_BLOCKS = new BooleanSetting("morphe_stable_caption_blocks", FALSE, true,
-            () -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q);
+    public static final BooleanSetting DUAL_CAPTIONS_ENABLED = new BooleanSetting("morphe_dual_captions_enabled", TRUE);
+    public static final StringSetting SECONDARY_CAPTION_LANGUAGE = new StringSetting("morphe_secondary_caption_language", "off", true,
+            () -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && CaptionTracks.isAvailable());
+    // Retain the stored key so existing trial size preferences remain valid.
+    public static final IntegerSetting CAPTION_SCALE = new IntegerSetting("morphe_dual_caption_scale", 100, true);
 
     // Miniplayer
     public static final BooleanSetting MINIPLAYER_DISABLE_RESUMING = new BooleanSetting("morphe_miniplayer_disable_resuming", FALSE, true);
@@ -563,6 +568,7 @@ public class Settings extends SharedYouTubeSettings {
     public static final BooleanSetting BYPASS_IMAGE_REGION_RESTRICTIONS = new BooleanSetting("morphe_bypass_image_region_restrictions", FALSE, true);
     public static final BooleanSetting GRADIENT_LOADING_SCREEN = new BooleanSetting("morphe_gradient_loading_screen", FALSE, true);
     public static final IntegerSetting RIVE_SPLASH_SCREEN_STATE = new IntegerSetting("morphe_rive_splash_screen_state", 0, false, false);
+    public static final IntegerSetting RIVE_SPLASH_SCREEN_DURATION = new IntegerSetting("morphe_splash_screen_duration", 1200, true, new RiveSplashScreenDurationAvailability());
     public static final EnumSetting<HeaderLogo> HEADER_LOGO = new EnumSetting<>("morphe_header_logo", HeaderLogo.DEFAULT, true);
     public static final BooleanSetting DISABLE_SIGN_IN_TO_TV_POPUP = new BooleanSetting("morphe_disable_sign_in_to_tv_popup", FALSE);
     public static final BooleanSetting DISABLE_CONNECT_YOUR_DEVICES_POPUP = new BooleanSetting("morphe_disable_connect_your_devices_popup", FALSE);
@@ -916,6 +922,8 @@ public class Settings extends SharedYouTubeSettings {
     private static final BooleanSetting DEPRECATED_DISABLE_TRANSLUCENT_NAVIGATION = new BooleanSetting("morphe_disable_translucent_navigation", FALSE);
 
     static {
+        Setting.preferences.removeKey("morphe_stable_caption_blocks");
+        Setting.preferences.removeKey("morphe_translate_caption_blocks");
         migrateOldSettingToNew(DEPRECATED_BYPASS_URL_REDIRECTS, BYPASS_LINK_REDIRECTS);
         migrateOldSettingToNew(DEPRECATED_COPY_VIDEO_URL, DEPRECATED_COPY_VIDEO_URL_BUTTON);
         migrateOldSettingToNew(DEPRECATED_COPY_VIDEO_URL_TIMESTAMP, DEPRECATED_COPY_VIDEO_URL_BUTTON_TIMESTAMP);
@@ -1187,6 +1195,7 @@ public class Settings extends SharedYouTubeSettings {
     // Register SeekBar UI configs so the single shared SeekBarPreference class knows the
     // range, step, unit, integer setting that uses it.
     static {
+        SeekBarPreference.register(new SeekBarConfig(CAPTION_SCALE, 30, 150, 5, "%"));
         SeekBarPreference.register(new SeekBarConfig(SWIPE_ZONE_WIDTH,
                 5, 50, 1, "%"));
         SeekBarPreference.register(new SeekBarConfig(SWIPE_OVERLAY_OPACITY,
@@ -1217,6 +1226,8 @@ public class Settings extends SharedYouTubeSettings {
                 10, 25, 1, "x", 10));
         SeekBarPreference.register(new SeekBarConfig(VIDEO_DELAY,
                 0, 5000, 25, "ms"));
+        SeekBarPreference.register(new SeekBarConfig(RIVE_SPLASH_SCREEN_DURATION,
+                1000, 3000, 200, "s", 1000));
         SeekBarPreference.register(new SeekBarConfig(NICONICO_COMMENTS_FONT_SIZE,
                 12, 40, 1, "sp"));
         SeekBarPreference.register(new SeekBarConfig(NICONICO_COMMENTS_OPACITY,

@@ -515,7 +515,6 @@ Pagkatapos buksan ang isang video na may Ask button, gagana ang feature sa lahat
   <string name="morphe_external_downloader_quick_audio">Audio</string>
   <string name="morphe_external_downloader_quick_options">Lahat ng opsyon</string>
   <string name="morphe_shorts_download_flyout_button_title">Ipakita ang pag-download sa Shorts menu</string>
-  <string name="morphe_shorts_download_flyout_button_summary">Nagdadagdag ng item ng external downloader flyout menu sa Shorts player</string>
   <string name="morphe_shorts_download_flyout_title">I-download</string>
   <!-- video.voiceovertranslation.voiceOverTranslationPatch -->
   <string name="morphe_vot_screen_title">Pagsasalin ng boses</string>
@@ -623,10 +622,6 @@ Impormasyon: Maaaring hindi gumana sa mga live stream"</string>
   <string name="morphe_save_to_watch_later_flyout_title">I-save sa Panoorin Mamaya</string>
   <string name="morphe_save_to_watch_later_flyout_button_title">Ipakita ang button na I-save sa Panoorin Mamaya sa flyout ng mga setting ng player</string>
   <string name="morphe_save_to_watch_later_flyout_button_summary">Nagbibigay-daan sa pag-save ng kasalukuyang pinapanood na video sa \'Panoorin Mamaya\' mula sa flyout ng mga setting ng video</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_title">Ipakita ang button na I-save sa Panoorin Mamaya sa mga video ng mga bata</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_summary">Nagbibigay-daan sa pag-save ng mga video na nauugnay sa mga bata sa \'Panoorin Mamaya\' mula sa flyout menu</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_title">Ipakita ang button na I-save sa Panoorin Mamaya sa flyout ng shorts</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_summary">Nagbibigay-daan sa pag-save ng mga shorts sa \'Panoorin Mamaya\' mula sa flyout menu</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_title">I-redirect ang \"Panoorin mamaya\" sa playlist</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_summary">Panoorin mamaya</string>
   <string name="morphe_queue_flyout_title">Idagdag sa Morphe queue</string>
@@ -874,8 +869,6 @@ Dapat ibigay ang 'Caption cookies'"</string>
   <string name="morphe_fix_transcript_title">Ayusin ang transcript</string>
   <string name="morphe_fix_transcript_summary">Nilulutas ang isang failure ng precondition check na maaaring pumigil sa pag-load ng transcript</string>
   <string name="morphe_captions_in_pip_title">Ipakita ang mga caption sa picture-in-picture</string>
-  <string name="morphe_stable_caption_blocks_title">Stable na mga caption block</string>
-  <string name="morphe_stable_caption_blocks_summary">Igrupo ang mga automatic caption sa mga stable at madaling basahing block. Maaaring lumitaw ang ilang salita bago pa man mabigkas. Kailangang i-restart.</string>
   <!-- layout.buttons.navigation.navigationButtonsPatch -->
   <string name="morphe_navigation_buttons_screen_title">Mga pindutan ng nabigasyon</string>
   <string name="morphe_navigation_buttons_screen_summary">Pumili kung aling mga component ang lilitaw sa toolbar</string>

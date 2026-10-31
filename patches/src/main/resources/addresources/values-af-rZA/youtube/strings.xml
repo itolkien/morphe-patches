@@ -515,7 +515,6 @@ Nadat 'n video met die Ask-knoppie een keer oopgemaak is, werk die funksie met a
   <string name="morphe_external_downloader_quick_audio">Klank</string>
   <string name="morphe_external_downloader_quick_options">Alle opsies</string>
   <string name="morphe_shorts_download_flyout_button_title">Wys aflaai in Shorts-kieslys</string>
-  <string name="morphe_shorts_download_flyout_button_summary">Voeg \'n eksterne aflaaier-uitvoukieslysitem by die Shorts-speler</string>
   <string name="morphe_shorts_download_flyout_title">Aflaai</string>
   <!-- video.voiceovertranslation.voiceOverTranslationPatch -->
   <string name="morphe_vot_screen_title">Vertaalde stem over</string>
@@ -623,10 +622,6 @@ Info: Werk moontlik nie op regstreekse uitsendings nie"</string>
   <string name="morphe_save_to_watch_later_flyout_title">Stoor na Kyk later</string>
   <string name="morphe_save_to_watch_later_flyout_button_title">Wys die \'Stoor na Kyk later\'-knoppie in die spelerinstellingskieslys</string>
   <string name="morphe_save_to_watch_later_flyout_button_summary">Dit laat jou toe om die video wat jy tans kyk, vanuit die video-instellingskieslys na \'Kyk later\' te stoor.</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_title">Wys Stoor na Kyk later-knoppie in kindervideo\'s</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_summary">Dit laat jou toe om kinderverwante video\'s vanuit die kieslys na \'Kyk later\' te stoor.</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_title">Wys die \'Stoor na Kyk later\'-knoppie in die kortvideokieslys</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_summary">Dit laat jou toe om kortvideo\'s vanuit die kieslys na \'Kyk later\' te stoor.</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_title">Stuur \"Kyk later\" na speellys toe</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_summary">Kyk later</string>
   <string name="morphe_queue_flyout_title">Voeg by Morphe-tou</string>
@@ -874,8 +869,6 @@ Om dit reg te stel, skakel 'Vervals videostrome' aan en verander die 'Verstekkli
   <string name="morphe_fix_transcript_title">Regstel transkripsie</string>
   <string name="morphe_fix_transcript_summary">Resolves a precondition check failure that can prevent the transcript from loading</string>
   <string name="morphe_captions_in_pip_title">Wys onderskrifte in prent-in-prent</string>
-  <string name="morphe_stable_caption_blocks_title">Stabiele byskrifblokke</string>
-  <string name="morphe_stable_caption_blocks_summary">Groepeer outomatiese onderskrifte in stabiele, leesbare blokke. Sommige woorde mag verskyn voordat dit gespreek word. Herbegin word vereis.</string>
   <!-- layout.buttons.navigation.navigationButtonsPatch -->
   <string name="morphe_navigation_buttons_screen_title">Navigasieknoppies</string>
   <string name="morphe_navigation_buttons_screen_summary">Choose which components appear in the toolbar</string>

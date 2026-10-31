@@ -515,7 +515,6 @@ Second \"item\" text"</string>
   <string name="morphe_external_downloader_quick_audio">שמע</string>
   <string name="morphe_external_downloader_quick_options">כל האפשרויות</string>
   <string name="morphe_shorts_download_flyout_button_title">הצג הורדה בתפריט Shorts</string>
-  <string name="morphe_shorts_download_flyout_button_summary">מוסיף פריט תפריט קופץ של מוריד חיצוני לפייסטיינר של Shorts</string>
   <string name="morphe_shorts_download_flyout_title">הורד</string>
   <!-- video.voiceovertranslation.voiceOverTranslationPatch -->
   <string name="morphe_vot_screen_title">תרגום דיבוב</string>
@@ -623,10 +622,6 @@ Second \"item\" text"</string>
   <string name="morphe_save_to_watch_later_flyout_title">שמור לצפייה מאוחרת</string>
   <string name="morphe_save_to_watch_later_flyout_button_title">הצג כפתור שמירה לצפייה מאוחרת בתפריט ההגדרות של הנגן</string>
   <string name="morphe_save_to_watch_later_flyout_button_summary">מאפשר לשמור את הסרטון הנוכחי ברשימת \'צפה מאוחר יותר\' מתפריט ההגדרות של הסרטון</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_title">הצג כפתור שמירה לצפייה מאוחרת בסרטוני ילדים</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_summary">מאפשר לשמור סרטונים הקשורים לילדים ברשימת \'צפה מאוחר יותר\' מהתפריט הנפתח</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_title">הצג כפתור שמירה ל\'צפה מאוחר יותר\' בתפריט הנפתח של הסרטונים הקצרים</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_summary">מאפשר לשמור סרטונים קצרים ברשימת \'צפה מאוחר יותר\' מהתפריט הנפתח</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_title">הפנה את \"צפייה מאוחר יותר\" לפלייליסט</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_summary">לצפייה בהמשך</string>
   <string name="morphe_queue_flyout_title">הוסף לתור Morphe</string>
@@ -874,8 +869,6 @@ Second \"item\" text"</string>
   <string name="morphe_fix_transcript_title">תיקון תמליל</string>
   <string name="morphe_fix_transcript_summary">פותר כשל בבדיקת תנאי מוקדם שעלול למנוע טעינה של התמלול</string>
   <string name="morphe_captions_in_pip_title">הצג כתוביות במופע בתוך תמונה</string>
-  <string name="morphe_stable_caption_blocks_title">בלוקים יציבים של כתוביות</string>
-  <string name="morphe_stable_caption_blocks_summary">קיבוץ כתוביות אוטומטיות לבלוקים יציבים וקריאים. ייתכן שחלק מהמילים יופיעו לפני שנאמרו. נדרשת הפעלה מחדש.</string>
   <!-- layout.buttons.navigation.navigationButtonsPatch -->
   <string name="morphe_navigation_buttons_screen_title">לחצני ניווט</string>
   <string name="morphe_navigation_buttons_screen_summary">בחר אילו כפתורים יופיעו בסרגל הניווט התחתון</string>

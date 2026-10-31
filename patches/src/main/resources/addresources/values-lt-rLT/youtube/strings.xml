@@ -515,7 +515,6 @@ Kartą atvėrus vaizdo įrašą su mygtuku „Ask“, funkcija veikia su visais 
   <string name="morphe_external_downloader_quick_audio">Garsas</string>
   <string name="morphe_external_downloader_quick_options">Visi nustatymai</string>
   <string name="morphe_shorts_download_flyout_button_title">Rodyti atsisiuntimą „Shorts“ meniu</string>
-  <string name="morphe_shorts_download_flyout_button_summary">Prideda išorinio atsisiuntimo įskiepio meniu punktą „Shorts“ grotuveje</string>
   <string name="morphe_shorts_download_flyout_title">Atsisiųsti</string>
   <!-- video.voiceovertranslation.voiceOverTranslationPatch -->
   <string name="morphe_vot_screen_title">Balso vertimas</string>
@@ -623,10 +622,6 @@ Informacija: gali neveikti tiesioginių transliacijų atveju"</string>
   <string name="morphe_save_to_watch_later_flyout_title">Išsaugoti žiūrėti vėliau</string>
   <string name="morphe_save_to_watch_later_flyout_button_title">Rodyti „Išsaugoti žiūrėti vėliau“ mygtuką grotuvo nustatymų iškylančiajame meniu</string>
   <string name="morphe_save_to_watch_later_flyout_button_summary">Leidžia išsaugoti šiuo metu žiūrimą vaizdo įrašą sąraše „Žiūrėti vėliau“ iš vaizdo įrašo nustatymų iškylančiojo meniu</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_title">Rodyti mygtuką „Išsaugoti žiūrėti vėliau“ vaikų vaizdo įrašuose</string>
-  <string name="morphe_save_to_watch_later_kids_flyout_button_summary">Leidžia išsaugoti su vaikais susijusius vaizdo įrašus sąraše „Žiūrėti vėliau“ iš iškylančiojo meniu</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_title">Rodyti „Išsaugoti žiūrėti vėliau“ mygtuką „Shorts“ iškylančiajame meniu</string>
-  <string name="morphe_save_to_watch_later_shorts_flyout_button_summary">Leidžia išsaugoti „Shorts“ įrašus sąraše „Žiūrėti vėliau“ iš iškylančiojo meniu</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_title">Per nukreipti „Žiūrėti vėliau“ į playlistą</string>
   <string name="morphe_save_to_watch_later_redirect_playlist_id_summary">Žiūrėti vėliau</string>
   <string name="morphe_queue_flyout_title">Pridėti į Morphe eilę</string>
@@ -874,8 +869,6 @@ Turi būti pateikti „Subtitrų slapukai“"</string>
   <string name="morphe_fix_transcript_title">Pataisyti transkripciją</string>
   <string name="morphe_fix_transcript_summary">Išsprendžia išankstinės sąlygos patikros gedimą, kuris gali neleisti įkelti transkripcijos</string>
   <string name="morphe_captions_in_pip_title">Rodyti antraštes vaizdo režime „vaizdas už vaizdo“</string>
-  <string name="morphe_stable_caption_blocks_title">Stabilių aprašymų blokai</string>
-  <string name="morphe_stable_caption_blocks_summary">Grupuoti automatinis subtitrus į stabilius, lengvai skaitomus blokus. Kai kurie žodžiai gali pasirodyti anksčiau, nei jie bus ištarti. Reikia perkrauti.</string>
   <!-- layout.buttons.navigation.navigationButtonsPatch -->
   <string name="morphe_navigation_buttons_screen_title">Naršymo mygtukai</string>
   <string name="morphe_navigation_buttons_screen_summary">Pasirinkite, kokie mygtukai turėtų būti rodomi apačioje esančioje naravimo juostoje</string>
