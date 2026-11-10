@@ -15,6 +15,32 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class TranslatedCaptionPensPatchTest {
+    @Test public void nativeEffectLayerPreparationIsOwnedByTheSourceTrack() throws Exception {
+        byte[] input = ("<timedtext format='3'><head><wp id='0' ah='50'/></head><body>"
+                + "<p t='10' d='50' wp='0'>same</p><p t='10' d='50' wp='0'>same</p>"
+                + "</body></timedtext>").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        try {
+            for (var request : new TranslatedCaptionPensPatch.CaptionRequestInterface[] {
+                    ORIGINAL, TRANSLATED, null, () -> "not a track",
+                    new Request(new Track("a.en")),
+                    () -> new PreferredCaptionLanguagePatch.CaptionTrackInterface() {
+                        public String patch_getLanguageCode() { return "en"; }
+                        public String patch_getVssId() { throw new IllegalStateException("Missing VSS"); }
+                    },
+                    () -> { throw new IllegalStateException("Missing native getter"); }
+            }) {
+                TranslatedCaptionPensPatch.setParsedRequest(request);
+                try (var output = TranslatedCaptionPensPatch.repairInput(
+                        new java.io.ByteArrayInputStream(input), false, true)) {
+                    var document = CaptionXml.read(output.readAllBytes());
+                    assertEquals(request == ORIGINAL ? 2 : 1,
+                            document.getElementsByTagName("wp").getLength());
+                }
+            }
+        } finally {
+            TranslatedCaptionPensPatch.setParsedRequest(null);
+        }
+    }
     private static final int DEFAULT_PEN = Integer.MIN_VALUE;
 
     private static final class Track implements PreferredCaptionLanguagePatch.CaptionTrackInterface {
@@ -32,6 +58,25 @@ public class TranslatedCaptionPensPatchTest {
 
     private static final Request ORIGINAL = new Request(new Track(".tr"));
     private static final Request TRANSLATED = new Request(new Track("t.en.tr"));
+
+    @Test public void nativeRunMetadataExcludesMachineAndAutomaticInputs() {
+        try {
+            TranslatedCaptionPensPatch.setParsedRequest(ORIGINAL);
+            assertEquals(true, TranslatedCaptionPensPatch.isOriginalStyleSource());
+            TranslatedCaptionPensPatch.setParsedRequest(TRANSLATED);
+            assertEquals(false, TranslatedCaptionPensPatch.isOriginalStyleSource());
+            var automatic = new AutoTranslateCaptionsPatch.CaptionTrackInterface() {
+                public String patch_getLanguageCode() { return "en"; }
+                public String patch_getVssId() { return "a.en"; }
+                public String patch_getUrl() { return "https://www.youtube.com/api/timedtext?v=abcdefghijk&lang=en&kind=asr"; }
+                public AutoTranslateCaptionsPatch.CaptionTrackInterface patch_copyTranslation(String a, String b, String c, CharSequence d) {
+                    throw new AssertionError("No track copies");
+                }
+            };
+            TranslatedCaptionPensPatch.setParsedRequest(new Request(automatic));
+            assertEquals(false, TranslatedCaptionPensPatch.isOriginalStyleSource());
+        } finally { TranslatedCaptionPensPatch.setParsedRequest(null); }
+    }
 
     @Test public void translatedTrackUsesDefaultPen() {
         TranslatedCaptionPensPatch.setParsedRequest(TRANSLATED);

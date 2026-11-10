@@ -565,6 +565,27 @@ internal object CaptionsBottomSheetListFingerprint : Fingerprint(
     )
 )
 
+internal class CaptionsMenuSelectionFingerprint(
+    trackType: String,
+    reasonType: String,
+    selector: MethodReference
+) : Fingerprint(
+    accessFlags = listOf(AccessFlags.PUBLIC, AccessFlags.FINAL),
+    returnType = "V",
+    parameters = listOf(trackType, reasonType),
+    filters = listOf(methodCall(reference = selector))
+)
+
+internal class SubtitleManagerVisibilityFingerprint(trackType: String) : Fingerprint(
+    classFingerprint = SubtitleManagerFingerprintClassFingerprint,
+    accessFlags = listOf(AccessFlags.PUBLIC, AccessFlags.FINAL),
+    returnType = "V",
+    parameters = listOf(trackType, "Z"),
+    filters = listOf(
+        fieldAccess(opcode = Opcode.IGET_OBJECT, definingClass = "this", type = trackType)
+    )
+)
+
 internal object SetSubtitleTrackFingerprint : Fingerprint(
     classFingerprint = SubtitleManagerFingerprintClassFingerprint,
     accessFlags = listOf(AccessFlags.PUBLIC, AccessFlags.FINAL),
@@ -788,7 +809,7 @@ internal object CaptionWindowLayoutFingerprint : Fingerprint(
 /**
  * Caption cue of a subtitle window. Matches the id, time, text, full text and settings fields.
  */
-internal object CaptionCueToStringFingerprint : Fingerprint(
+internal class CaptionCueToStringFingerprint : Fingerprint(
     name = "toString",
     returnType = "Ljava/lang/String;",
     parameters = listOf(),
@@ -815,8 +836,8 @@ internal object CaptionCueToStringFingerprint : Fingerprint(
     )
 )
 
-internal object CaptionCueConstructorFingerprint : Fingerprint(
-    classFingerprint = CaptionCueToStringFingerprint,
+internal class CaptionCueConstructorFingerprint : Fingerprint(
+    classFingerprint = CaptionCueToStringFingerprint(),
     name = "<init>",
     returnType = "V",
     parameters = listOf("I", "J", "Ljava/lang/CharSequence;", "Ljava/lang/CharSequence;", "L")
@@ -904,20 +925,20 @@ internal fun getCaptionWindowSetterFingerprint(cueType: String) = object : Finge
 /**
  * Subtitle window constructor. Matches at the row used to measure caption text.
  */
-internal object CaptionWindowConstructorFingerprint : Fingerprint(
+internal class CaptionWindowConstructorFingerprint : Fingerprint(
     definingClass = SUBTITLE_WINDOW_VIEW_CLASS,
     name = "<init>",
     returnType = "V",
     parameters = listOf("Landroid/content/Context;"),
     filters = listOf(
-        fieldAccess(opcode = Opcode.IPUT_OBJECT, definingClass = "this", type = { CaptionRowLayoutFingerprint.classDef })
+        fieldAccess(opcode = Opcode.IPUT_OBJECT, definingClass = "this", type = { CaptionRowLayoutFingerprint().classDef })
     )
 )
 
 /**
  * The height measure spec branch incorrectly checks the width measure mode.
  */
-internal object CaptionWindowMeasureFingerprint : Fingerprint(
+internal class CaptionWindowMeasureFingerprint : Fingerprint(
     definingClass = SUBTITLE_WINDOW_VIEW_CLASS,
     name = "onMeasure",
     returnType = "V",
@@ -940,8 +961,8 @@ internal object CaptionWindowMeasureFingerprint : Fingerprint(
 )
 
 /** Final font size setter shared by the native caption renderers. */
-internal object CaptionWindowFontSizeFingerprint : Fingerprint(
-    classFingerprint = CaptionWindowMeasureFingerprint,
+internal class CaptionWindowFontSizeFingerprint : Fingerprint(
+    classFingerprint = CaptionWindowMeasureFingerprint(),
     returnType = "V",
     parameters = listOf("F"),
     filters = listOf(
@@ -952,8 +973,8 @@ internal object CaptionWindowFontSizeFingerprint : Fingerprint(
 )
 
 /** Resolves the window's effective row background, including native cue overrides. */
-internal object CaptionWindowBackgroundColorFingerprint : Fingerprint(
-    classFingerprint = CaptionWindowMeasureFingerprint,
+internal class CaptionWindowBackgroundColorFingerprint : Fingerprint(
+    classFingerprint = CaptionWindowMeasureFingerprint(),
     returnType = "I",
     parameters = listOf(),
     filters = listOf(
@@ -964,7 +985,7 @@ internal object CaptionWindowBackgroundColorFingerprint : Fingerprint(
 /**
  * Text layout of a caption row.
  */
-internal object CaptionRowLayoutFingerprint : Fingerprint(
+internal class CaptionRowLayoutFingerprint : Fingerprint(
     accessFlags = listOf(AccessFlags.PUBLIC, AccessFlags.FINAL),
     returnType = "Landroid/text/StaticLayout;",
     parameters = listOf(),
@@ -974,8 +995,8 @@ internal object CaptionRowLayoutFingerprint : Fingerprint(
     )
 )
 
-internal object CaptionRowSetTextFingerprint : Fingerprint(
-    classFingerprint = CaptionRowLayoutFingerprint,
+internal class CaptionRowSetTextFingerprint : Fingerprint(
+    classFingerprint = CaptionRowLayoutFingerprint(),
     accessFlags = listOf(AccessFlags.PUBLIC, AccessFlags.FINAL),
     returnType = "V",
     parameters = listOf("Ljava/lang/CharSequence;")
@@ -987,8 +1008,8 @@ internal const val CAPTION_STATIC_LAYOUT_PARAMETERS =
 /**
  * Creates the fill and the outline text layouts of a caption row.
  */
-internal object CaptionRowLayoutFactoryFingerprint : Fingerprint(
-    classFingerprint = CaptionRowLayoutFingerprint,
+internal class CaptionRowLayoutFactoryFingerprint : Fingerprint(
+    classFingerprint = CaptionRowLayoutFingerprint(),
     accessFlags = listOf(AccessFlags.PRIVATE, AccessFlags.FINAL),
     returnType = "Landroid/text/StaticLayout;",
     parameters = listOf("I"),

@@ -6,6 +6,7 @@
  */
 package app.morphe.extension.youtube.patches;
 
+import android.annotation.SuppressLint;
 import android.graphics.text.LineBreaker;
 import android.os.Build;
 import android.text.Layout;
@@ -15,8 +16,12 @@ import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.view.View;
 
-import android.annotation.SuppressLint;
 import androidx.annotation.Nullable;
+
+import app.morphe.extension.shared.Logger;
+import app.morphe.extension.shared.Utils;
+import app.morphe.extension.youtube.settings.Settings;
+import app.morphe.extension.youtube.shared.VideoState;
 
 import org.w3c.dom.Document;
 
@@ -28,27 +33,26 @@ import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.CancellationException;
 
-import app.morphe.extension.shared.Logger;
-import app.morphe.extension.shared.Utils;
-import app.morphe.extension.youtube.settings.Settings;
-import app.morphe.extension.youtube.shared.VideoState;
-
 /**
- * Native source timing and paint, with complete immutable text between block boundaries.
- * Does nothing unless stable caption blocks or a secondary caption language are enabled.
+ * Native source timing and paint, with complete immutable text between block boundaries. Does
+ * nothing unless stable caption blocks or a secondary caption language are enabled.
  */
 @SuppressWarnings("unused")
 public final class StableCaptionBlocks {
     private static final ThreadLocal<State> parsing = new ThreadLocal<>();
     private static final Object FIXED_PARAGRAPH = new Object();
+    private static final Object NATIVE_PARAGRAPH = new Object();
 
-    /**
-     * Block rendering is supported on Android 10 and later. Both settings require a restart.
-     */
-    private static final boolean ENABLED = isPatchIncluded()
-            && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-            && (Settings.STABLE_CAPTION_BLOCKS.get()
-            || AutoTranslateCaptionsPatch.translationLanguage(Settings.SECONDARY_CAPTION_LANGUAGE.get()) != null);
+    /** Block rendering is supported on Android 10 and later. Both settings require a restart. */
+    private static final boolean ENABLED =
+            isPatchIncluded()
+                    && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                    && (Settings.STABLE_CAPTION_BLOCKS.get()
+                            || CaptionTracks.usesVideoLanguage()
+                            || AutoTranslateCaptionsPatch.translationLanguage(
+                                            Settings.SECONDARY_CAPTION_LANGUAGE.get())
+                                    != null
+                            || CaptionTracks.nativeStyledOutputsEnabled());
 
     /**
      * Number of block plans kept, for the inner, outer portrait and outer landscape displays.
@@ -117,10 +121,16 @@ public final class StableCaptionBlocks {
         StaticLayout patch_getCaptionLayout();
     }
 
+    /**
+     * One native query: time is player/sample milliseconds; key is the template or native ID.
+     * Native styling, translated source-window ownership and language are independent dimensions.
+     */
     public static final class Frame {
         final State state;
         final long time, key;
         final boolean nativeStyle;
+        @Nullable final Integer sourceWindowId;
+        @Nullable private final Integer fallbackCaptionId;
         private final int language;
 
         Frame(State state, long time, long key) {
@@ -128,16 +138,30 @@ public final class StableCaptionBlocks {
         }
 
         Frame(State state, long time, long key, int language, boolean nativeStyle) {
+            this(state, time, key, language, nativeStyle, null, null);
+        }
+
+        Frame(
+                State state,
+                long time,
+                long key,
+                int language,
+                boolean nativeStyle,
+                @Nullable Integer sourceWindowId,
+                @Nullable Integer fallbackCaptionId) {
             this.state = state;
             this.time = time;
             this.key = key;
             this.language = language;
             this.nativeStyle = nativeStyle;
+            this.sourceWindowId = sourceWindowId;
+            this.fallbackCaptionId = fallbackCaptionId;
         }
 
         /** Capture stays active in native mode so the bilingual toggle can reuse this timeline. */
         public boolean usesBlockLayout() {
             if (nativeStyle) return false;
+            if (sourceWindowId != null) return true;
             CaptionSession session = state.translation;
             return CaptionTracks.dualCaptionEnabled()
                     || (state.automatic && Settings.STABLE_CAPTION_BLOCKS.get())
@@ -145,9 +169,15 @@ public final class StableCaptionBlocks {
                     || (session != null && !session.primaryLanguage.equals(session.sourceLanguage));
         }
 
-        /** Injection point: native styled windows need a separate id for each language. */
+        /** Injection point: translated content can retain authored native window placement. */
+        public boolean usesDefaultWindow() {
+            return sourceWindowId == null && usesBlockLayout();
+        }
+
+        /** Injection point: native windows need a separate id for each language. */
         public int captionId(int original) {
             if (state.nativePair == null) return original;
+            if (!nativeStyle && fallbackCaptionId != null) return fallbackCaptionId;
             return nativeStyle ? (int) key : language == 1 ? -1 : -2;
         }
 
@@ -157,28 +187,34 @@ public final class StableCaptionBlocks {
 
         @Override
         public boolean equals(Object other) {
-            return other instanceof Frame f && f.state == state && f.key == key
-                    && f.language == language && f.nativeStyle == nativeStyle;
+            return other instanceof Frame f
+                    && f.state == state
+                    && f.key == key
+                    && f.language == language
+                    && f.nativeStyle == nativeStyle
+                    && java.util.Objects.equals(sourceWindowId, f.sourceWindowId)
+                    && java.util.Objects.equals(fallbackCaptionId, f.fallbackCaptionId);
         }
 
         @Override
         public int hashCode() {
             int hash = 31 * System.identityHashCode(state) + Long.hashCode(key);
             hash = 31 * hash + language;
-            return 31 * hash + Boolean.hashCode(nativeStyle);
+            hash = 31 * hash + Boolean.hashCode(nativeStyle);
+            if (sourceWindowId == null && fallbackCaptionId == null) return hash;
+            return 31 * (31 * hash + java.util.Objects.hashCode(sourceWindowId))
+                    + java.util.Objects.hashCode(fallbackCaptionId);
         }
     }
 
+    /** Timeline metadata shared by native cache reuse; a pair can also have a fallback session. */
     public static final class State {
         final boolean automatic;
-        @Nullable NativeCaptionPair nativePair;
+        @Nullable volatile NativeCaptionPair nativePair;
         boolean nativeSource;
-        @Nullable
-        volatile StableCaptionBlockPolicy policy;
-        @Nullable
-        volatile CaptionSession translation;
-        @Nullable
-        CaptionTracks.Captured captured;
+        @Nullable volatile StableCaptionBlockPolicy policy;
+        @Nullable volatile CaptionSession translation;
+        @Nullable CaptionTracks.Captured captured;
         private final Map<View, Cache> caches = new WeakHashMap<>();
         private final List<Cache> ready = new ArrayList<>();
 
@@ -220,9 +256,7 @@ public final class StableCaptionBlocks {
         }
     }
 
-    /**
-     * Called before a caption track is parsed.
-     */
+    /** Called before a caption track is parsed. */
     static void setAutomaticTrack(boolean automatic) {
         if (!ENABLED) return;
         parsing.remove();
@@ -259,10 +293,7 @@ public final class StableCaptionBlocks {
         }
     }
 
-    /**
-     * Injection point.
-     * Called at the end of the caption timeline constructor.
-     */
+    /** Injection point. Called at the end of the caption timeline constructor. */
     @Nullable
     public static State takeState() {
         if (!ENABLED) return null;
@@ -291,8 +322,7 @@ public final class StableCaptionBlocks {
     }
 
     /**
-     * Injection point.
-     * Called instead of the caption sampler, if the timeline has a block state.
+     * Injection point. Called instead of the caption sampler, if the timeline has a block state.
      */
     @SuppressWarnings("DataFlowIssue")
     public static List<?> present(Timeline timeline, long time) {
@@ -300,58 +330,88 @@ public final class StableCaptionBlocks {
         try {
             State state = timeline.patch_getBlockState();
             if (state != null && state.nativePair != null) {
-                if (!CaptionTracks.isCurrentNativePair(state.nativePair)) return Collections.emptyList();
-                if (state.translation != null && !state.translation.isActive()) CaptionTracks.restoreTranslation(state);
-                return state.nativePair.at(time, state);
+                if (CaptionTracks.isCurrentNativePair(state.nativePair)) {
+                    if (state.translation != null && !state.translation.isActive())
+                        CaptionTracks.restoreTranslation(state);
+                    return state.nativePair.at(time, state);
+                }
+                // An expired pair must never own the cached timeline after dual mode is off,
+                // including an uploaded-only pair that has no source session.
+                state.nativePair = null;
             }
-            if (state == null || original == null
-                    || state.nativeSource && !CaptionTracks.dualCaptionEnabled()) return original;
+            if (state == null
+                    || original == null
+                    || state.nativeSource && !CaptionTracks.nativeSourceOutputEnabled())
+                return original;
             final boolean uploaded = CaptionTracks.hasUploadedTracks();
             if (original.size() > 1 && !uploaded && !state.nativeSource) return original;
             Frame frame = new Frame(state, time, Long.MIN_VALUE);
-            if (state.translation != null && !state.translation.isActive()
+            if (state.translation != null
+                    && !state.translation.isActive()
                     && !CaptionTracks.restoreTranslation(state)) return Collections.emptyList();
+            NativeCaptionPair sourcePair = NativeCaptionPair.forSource(timeline, state);
+            if (sourcePair != null) {
+                state.nativePair = sourcePair;
+                return sourcePair.at(time, state);
+            }
             boolean blocks = frame.usesBlockLayout();
             // Native sampling can run ahead on a worker; the player clock is main-thread only.
             if (blocks && state.translation != null && Utils.isCurrentlyOnMainThread()) {
                 long playbackTime = VideoInformation.getVideoTime();
-                state.translation.demand(playbackTime >= 0 ? playbackTime : time,
+                state.translation.demand(
+                        playbackTime >= 0 ? playbackTime : time,
                         VideoInformation.getPlaybackSpeed());
             }
-            if (uploaded || state.nativeSource) {
-                if (state.nativeSource && state.policy.templateTime(time) < 0) return Collections.emptyList();
-                // The merged timeline has the cues of all languages, and the overlay shows the text.
-                // Keep one visible cue as the window of the overlay.
-                for (Object candidate : original) {
-                    if (!(candidate instanceof Cue cue)) continue;
-                    CharSequence text = cue.patch_getOriginalCaptionVisible();
-                    if (text != null && text.length() > 0) {
-                        Object copy = cue.patch_copyBlockFrame(new Frame(state, time, time));
-                        return copy == null ? original : Collections.singletonList(copy);
-                    }
-                }
-                return Collections.emptyList();
-            }
-            long template = blocks ? state.policy.templateTime(time) : time;
-            if (template < 0) return Collections.emptyList();
-
-            List<?> source = original;
-            //noinspection SizeReplaceableByIsEmpty
-            if (blocks && (source.isEmpty() || (source.size() == 1 && source.get(0) instanceof Cue c
-                            && (c.patch_getOriginalCaptionVisible() == null
-                                    || c.patch_getOriginalCaptionVisible().length() == 0)))) {
-                source = timeline.patch_getOriginalCaptions(template);
-            }
-            if (source == null || source.size() != 1 || !(source.get(0) instanceof Cue cue))
-                return original;
-            Object copy =
-                    cue.patch_copyBlockFrame(
-                            blocks ? new Frame(state, time, template) : frame);
-            return copy == null ? original : Collections.singletonList(copy);
+            if (uploaded || state.nativeSource) return presentOverlayAnchor(original, state, time);
+            return presentTemplateCue(timeline, original, frame, blocks);
         } catch (Exception ex) {
             Logger.printException(() -> "present failure", ex);
             return original;
         }
+    }
+
+    /** One native cue anchors the existing Android fallback for uploaded/source outputs. */
+    private static List<?> presentOverlayAnchor(List<?> original, State state, long time) {
+        if (state.nativeSource && state.policy.templateTime(time) < 0)
+            return Collections.emptyList();
+        // The merged timeline has the cues of all languages, and the overlay shows the
+        // text.
+        // Keep one visible cue as the window of the overlay.
+        for (Object candidate : original) {
+            if (!(candidate instanceof Cue cue)) continue;
+            CharSequence text = cue.patch_getOriginalCaptionVisible();
+            if (text != null && text.length() > 0) {
+                Object copy = cue.patch_copyBlockFrame(new Frame(state, time, time));
+                return copy == null ? original : Collections.singletonList(copy);
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    /** Optional block presentation changes the template, never the source event clock. */
+    private static List<?> presentTemplateCue(Timeline timeline, List<?> original, Frame frame,
+            boolean blocks) {
+        State state = frame.state;
+        long time = frame.time;
+        long template = blocks ? state.policy.templateTime(time) : time;
+        if (template < 0) return Collections.emptyList();
+
+        List<?> source = original;
+        //noinspection SizeReplaceableByIsEmpty
+        if (blocks
+                && (source.isEmpty()
+                        || (source.size() == 1
+                                && source.get(0) instanceof Cue c
+                                && (c.patch_getOriginalCaptionVisible() == null
+                                        || c.patch_getOriginalCaptionVisible().length()
+                                                == 0)))) {
+            source = timeline.patch_getOriginalCaptions(template);
+        }
+        if (source == null || source.size() != 1 || !(source.get(0) instanceof Cue cue))
+            return original;
+        Object copy =
+                cue.patch_copyBlockFrame(blocks ? new Frame(state, time, template) : frame);
+        return copy == null ? original : Collections.singletonList(copy);
     }
 
     /**
@@ -359,7 +419,9 @@ public final class StableCaptionBlocks {
      * placement.
      */
     public static List<?> centerBlocks(@Nullable List<?> original) {
-        if (!ENABLED || original == null || original.size() != 1
+        if (!ENABLED
+                || original == null
+                || original.size() != 1
                 || !(original.get(0) instanceof Cue cue)) {
             return original;
         }
@@ -378,9 +440,9 @@ public final class StableCaptionBlocks {
      * Called before native window measurement, after its font/typeface/style have been configured.
      */
     public static void prepare(View view, int widthSpec) {
+        DualCaptionOverlay.begin(view);
         if (!ENABLED) return;
         try {
-            DualCaptionOverlay.begin(view);
             if (!(view instanceof Window window)
                     || !(window.patch_getCaptionCue() instanceof Cue cue)) return;
             Frame frame = cue.patch_getBlockFrame();
@@ -415,9 +477,7 @@ public final class StableCaptionBlocks {
                     View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
             StaticLayout probe = row.patch_getCaptionLayout();
             if (probe == null || probe.getWidth() <= 0) return;
-            if (cache == null
-                    || cache.policy != frame.state.policy
-                    || !cache.matches(probe)) {
+            if (cache == null || cache.policy != frame.state.policy || !cache.matches(probe)) {
                 if (cache != null) cache.cancelled = true;
                 cache = new Cache(probe.getWidth(), probe.getPaint(), frame.state);
                 frame.state.caches.put(view, cache);
@@ -452,9 +512,7 @@ public final class StableCaptionBlocks {
         }
     }
 
-    /**
-     * Uses a matching plan if one exists, otherwise measures the plan in the background.
-     */
+    /** Uses a matching plan if one exists, otherwise measures the plan in the background. */
     private static void planBlocks(View view, State state, Cache cache) {
         for (Cache previous : state.ready) {
             if (previous.policy == cache.policy && previous.matches(cache)) {
@@ -467,71 +525,126 @@ public final class StableCaptionBlocks {
 
         WeakReference<View> redraw = new WeakReference<>(view);
         StableCaptionBlockPolicy policy = cache.policy;
-        Utils.runOnBackgroundThread(() -> {
-            try {
-                cache.blocks = policy.plan(text -> cache.layout(text).getLineCount() <= 2);
-            } catch (CancellationException ex) {
-                Logger.printDebug(() -> "Plan cancelled");
-                cache.blocks = List.of();
-            } catch (Exception ex) {
-                Logger.printException(() -> "plan failure", ex);
-                cache.blocks = List.of();
-            }
+        Utils.runOnBackgroundThread(
+                () -> {
+                    try {
+                        cache.blocks = policy.plan(text -> cache.layout(text).getLineCount() <= 2);
+                    } catch (CancellationException ex) {
+                        Logger.printDebug(() -> "Plan cancelled");
+                        cache.blocks = List.of();
+                    } catch (Exception ex) {
+                        Logger.printException(() -> "plan failure", ex);
+                        cache.blocks = List.of();
+                    }
 
-            Utils.runOnMainThread(() -> {
-                if (cache.cancelled || state.policy != policy) return;
+                    Utils.runOnMainThread(
+                            () -> {
+                                if (cache.cancelled || state.policy != policy) return;
 
-                if (!cache.blocks.isEmpty()) {
-                    state.ready.removeIf(cache::matches);
-                    state.ready.add(0, cache);
-                    if (state.ready.size() > MAX_READY_PLANS) state.ready.remove(MAX_READY_PLANS);
-                }
-                View target = redraw.get();
-                if (target != null) target.requestLayout();
-            });
-        });
+                                if (!cache.blocks.isEmpty()) {
+                                    state.ready.removeIf(cache::matches);
+                                    state.ready.add(0, cache);
+                                    if (state.ready.size() > MAX_READY_PLANS)
+                                        state.ready.remove(MAX_READY_PLANS);
+                                }
+                                View target = redraw.get();
+                                if (target != null) target.requestLayout();
+                            });
+                });
     }
 
     @SuppressWarnings("DataFlowIssue")
-    private static void renderTranslation(View view, Frame frame, Cache cache,
-                                          List<CharSequence> full, List<CharSequence> visible) {
+    private static void renderTranslation(
+            View view,
+            Frame frame,
+            Cache cache,
+            List<CharSequence> full,
+            List<CharSequence> visible) {
         CaptionSession session = frame.state.translation;
-        long time = VideoInformation.getVideoTime();
+        // Native windows belong to the timeline query, including before the player clock exists.
+        long time = frame.state.nativePair != null ? frame.time : VideoInformation.getVideoTime();
         if (time < 0) time = session.playbackTime();
-        else session.demand(time, VideoInformation.getPlaybackSpeed());
+        session.demand(time, VideoInformation.getPlaybackSpeed());
         if (frame.state.nativePair != null) {
-            CaptionSession.Snapshot cue = session.snapshot(time, VideoState.getCurrent() == VideoState.PAUSED);
+            CaptionSession.Snapshot cue =
+                    session.snapshot(time, VideoState.getCurrent() == VideoState.PAUSED);
             if (cue == null) {
                 replace(full, visible, "");
                 return;
             }
-            UploadedCaptionPair.Frame fallback = frame.state.nativePair.fallback(cue);
-            DualCaptionOverlay.show(view, fallback.primary(), fallback.secondary(), cache.paint, cache.width,
-                    session, fallback.firstKey(), fallback.secondKey(), cue.complete,
-                    frame.state.nativePair.tracks.first() == null, frame.state.nativePair.tracks.second() == null);
-            replace(full, visible, fallback.primary());
+            NativeCaptionPair pair = frame.state.nativePair;
+            if (frame.sourceWindowId != null) {
+                CharSequence translatedFull =
+                        pair.fallback(
+                                cue, frame.secondaryNativeCaption(), frame.sourceWindowId, full);
+                CharSequence translatedVisible =
+                        pair.fallback(
+                                cue, frame.secondaryNativeCaption(), frame.sourceWindowId, visible);
+                replaceNative(full, translatedFull);
+                replaceNative(visible, translatedVisible);
+                NativeCaptionWindows.onCue(view);
+            } else {
+                replace(full, visible, pair.fallback(cue, frame.secondaryNativeCaption(), null));
+            }
             return;
         }
         UploadedCaptionPair.Frame uploaded = CaptionTracks.uploadedFrame(frame.time, session);
         if (uploaded != null) {
-            DualCaptionOverlay.show(view, uploaded.primary(), uploaded.secondary(), cache.paint, cache.width,
-                    session, uploaded.firstKey(), uploaded.secondKey(), true);
+            DualCaptionOverlay.show(
+                    view,
+                    uploaded.primary(),
+                    uploaded.secondary(),
+                    cache.paint,
+                    cache.width,
+                    session,
+                    uploaded.firstKey(),
+                    uploaded.secondKey(),
+                    true);
             replace(full, visible, uploaded.primary());
             return;
         }
-        CaptionSession.Snapshot cue = session.snapshot(time, VideoState.getCurrent() == VideoState.PAUSED);
+        CaptionSession.Snapshot cue =
+                session.snapshot(time, VideoState.getCurrent() == VideoState.PAUSED);
         if (cue == null) {
             replace(full, visible, "");
             return;
         }
         if (session.secondaryLanguage != null) {
-            DualCaptionOverlay.show(view, cue.primary, cue.secondary, cache.paint, cache.width,
-                    session, cue.start, cue.start, cue.complete);
+            DualCaptionOverlay.show(
+                    view,
+                    cue.primary,
+                    cue.secondary,
+                    cache.paint,
+                    cache.width,
+                    session,
+                    cue.start,
+                    cue.start,
+                    cue.complete);
         }
         replace(full, visible, cue.primary);
     }
 
-    private static void replace(List<CharSequence> full, List<CharSequence> visible, String text) {
+    /** Native windows keep individual full/visible rows and their native layout policy. */
+    private static void replaceNative(List<CharSequence> rows, CharSequence text) {
+        rows.clear();
+        var breaks = java.util.regex.Pattern.compile("\\r\\n|[\\r\\n\\u2028\\u2029]").matcher(text);
+        int start = 0;
+        while (breaks.find()) {
+            rows.add(nativeRow(text.subSequence(start, breaks.start())));
+            start = breaks.end();
+        }
+        rows.add(nativeRow(text.subSequence(start, text.length())));
+    }
+
+    private static CharSequence nativeRow(CharSequence text) {
+        var row = new SpannableStringBuilder(text);
+        row.setSpan(FIXED_PARAGRAPH, 0, row.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
+        row.setSpan(NATIVE_PARAGRAPH, 0, row.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
+        return row;
+    }
+
+    private static void replace(
+            List<CharSequence> full, List<CharSequence> visible, CharSequence text) {
         SpannableStringBuilder marked = new SpannableStringBuilder(text);
         marked.setSpan(FIXED_PARAGRAPH, 0, marked.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
         full.clear();
@@ -542,10 +655,18 @@ public final class StableCaptionBlocks {
 
     @SuppressLint("InlinedApi")
     private static StaticLayout.Builder blockLayout(CharSequence text, TextPaint paint, int width) {
-        return StaticLayout.Builder.obtain(text, 0, text.length(), paint, width)
-                .setAlignment(Layout.Alignment.ALIGN_CENTER)
-                .setBreakStrategy(LineBreaker.BREAK_STRATEGY_BALANCED)
-                .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
+        var builder =
+                StaticLayout.Builder.obtain(text, 0, text.length(), paint, width)
+                        .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                        .setBreakStrategy(LineBreaker.BREAK_STRATEGY_BALANCED)
+                        .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
+        Boolean rtl = NativeCaptionVertical.paragraphDirection(text);
+        return rtl == null
+                ? builder
+                : builder.setTextDirection(
+                        rtl
+                                ? android.text.TextDirectionHeuristics.RTL
+                                : android.text.TextDirectionHeuristics.LTR);
     }
 
     private static boolean marked(List<CharSequence> lines) {
@@ -565,13 +686,33 @@ public final class StableCaptionBlocks {
             float spacingMult,
             float spacingAdd,
             boolean includePad) {
+        width = CaptionViewportPatch.captionTextWidth(width);
         if (ENABLED
-                && text instanceof Spanned spans && spans.getSpanStart(FIXED_PARAGRAPH) >= 0) {
+                && text instanceof Spanned spans
+                && spans.getSpanStart(FIXED_PARAGRAPH) >= 0
+                && spans.getSpanStart(NATIVE_PARAGRAPH) < 0) {
             return blockLayout(text, paint, width)
                     .setLineSpacing(spacingAdd, spacingMult)
                     .setIncludePad(includePad)
                     .build();
         }
+        Boolean rtl = NativeCaptionVertical.paragraphDirection(text);
+        if (rtl != null || NativeCaptionWindows.justified(text))
+            return StaticLayout.Builder.obtain(text, 0, text.length(), paint, width)
+                    .setAlignment(alignment)
+                    .setTextDirection(
+                            rtl == null
+                                    ? android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR
+                                    : rtl
+                                            ? android.text.TextDirectionHeuristics.RTL
+                                            : android.text.TextDirectionHeuristics.LTR)
+                    .setJustificationMode(
+                            NativeCaptionWindows.justified(text)
+                                    ? Layout.JUSTIFICATION_MODE_INTER_WORD
+                                    : Layout.JUSTIFICATION_MODE_NONE)
+                    .setLineSpacing(spacingAdd, spacingMult)
+                    .setIncludePad(includePad)
+                    .build();
         return new StaticLayout(text, paint, width, alignment, spacingMult, spacingAdd, includePad);
     }
 }

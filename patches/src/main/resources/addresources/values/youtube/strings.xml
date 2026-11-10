@@ -1044,6 +1044,14 @@ To fix this, turn on \'Spoof video streams\' and change the \'Default client\' t
     <string name="morphe_captions_in_pip_title">Show captions in picture-in-picture</string>
 
     <!-- layout.captions.captionViewportPatch -->
+    <string name="morphe_caption_appearance_title">Caption appearance</string>
+    <string name="morphe_caption_appearance_summary">Adjust caption position, width and size with a live preview</string>
+    <string name="morphe_caption_position_label">Position</string>
+    <string name="morphe_caption_width_label">Width</string>
+    <string name="morphe_caption_size_label">Size</string>
+    <string name="morphe_caption_preview_text">Caption preview text that wraps inside the player</string>
+    <string name="morphe_caption_vertical_offset_title">Caption vertical offset</string>
+    <string name="morphe_caption_vertical_offset_summary">Moves captions upward in the player, up to half its height. Set to 0 to restore the original position. Not applied in picture-in-picture.</string>
     <string name="morphe_caption_scale_title">Caption size</string>
     <string name="morphe_caption_scale_summary">Applies to single-language and bilingual captions</string>
 
@@ -1052,6 +1060,7 @@ To fix this, turn on \'Spoof video streams\' and change the \'Default client\' t
     <string name="morphe_stable_caption_blocks_summary">Group single-language automatic captions into stable, readable blocks. Bilingual captions always use blocks. Some words may appear before they are spoken</string>
     <string name="morphe_secondary_caption_language_title">Secondary caption language</string>
     <string name="morphe_secondary_caption_language_summary">Shows a second language with the captions, and adds a Bilingual captions toggle to the captions menu</string>
+    <string name="morphe_caption_language_video">Video language</string>
     <string name="morphe_dual_captions_enabled_title">Bilingual captions</string>
     <string name="morphe_caption_block_translation_failed">Some caption translations are unavailable. Showing available captions.</string>
     <string name="morphe_caption_blocks_too_large">Both caption languages do not fit in this player. Showing the primary language.</string>

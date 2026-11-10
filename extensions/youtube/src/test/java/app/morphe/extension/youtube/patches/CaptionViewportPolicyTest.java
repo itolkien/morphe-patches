@@ -7,16 +7,18 @@ import org.junit.Test;
 public class CaptionViewportPolicyTest {
     private static final String A = "videoA00001", B = "videoB00002";
 
-    @Test public void scalesEverySliderStepRelativeToNativeFont() {
+    @Test
+    public void scalesEverySliderStepRelativeToNativeFont() {
         for (int percent = 30; percent <= 150; percent += 5) {
-            assertEquals(80f * percent / 100f,
-                    CaptionViewportPolicy.scaleFontSize(80f, percent), .001f);
+            assertEquals(
+                    80f * percent / 100f, CaptionViewportPolicy.scaleFontSize(80f, percent), .001f);
         }
         assertEquals(72f, CaptionViewportPolicy.scaleFontSize(80f, 90), .001f);
         assertEquals(80f, CaptionViewportPolicy.scaleFontSize(80f, 100), .001f);
     }
 
-    @Test public void defaultScaleKeepsTheExactNativeFontSize() {
+    @Test
+    public void defaultScaleKeepsTheExactNativeFontSize() {
         assertEquals(17.3f, CaptionViewportPolicy.scaleFontSize(17.3f, 100), 0f);
     }
 
@@ -139,5 +141,47 @@ public class CaptionViewportPolicyTest {
         assertEquals(1968, p.height(2184, 1968, true, true));
         p.record(A, 1440, 1080);
         assertEquals(1638, p.height(2184, 1968, true, true));
+    }
+    @Test public void offsetUsesOnlyTheAvailableTravelToTheSafeTop() {
+        assertEquals(-540f, CaptionViewportPolicy.positionOffset(100, 540, 0, false), 0f);
+        assertEquals(-440f, CaptionViewportPolicy.positionOffset(100, 540, 100, false), 0f);
+        assertEquals(-270f, CaptionViewportPolicy.positionOffset(50, 540, 0, false), 0f);
+        assertEquals(0f, CaptionViewportPolicy.positionOffset(100, 0, 0, false), 0f);
+        assertEquals(0f, CaptionViewportPolicy.positionOffset(100, 540, 0, true), 0f);
+    }
+
+    @Test public void offsetClampsTheSliderRange() {
+        assertEquals(-540f, CaptionViewportPolicy.positionOffset(150, 540, 0, false), 0f);
+        assertEquals(0f, CaptionViewportPolicy.positionOffset(-5, 540, 0, false), 0f);
+    }
+
+    @Test public void positionSafeTopUsesTheCaptionOverlayNotTheVideoLetterbox() {
+        assertEquals(5f, CaptionViewportPolicy.safeTop(1968, 0, 0, 5), 0f);
+        assertEquals(55f, CaptionViewportPolicy.safeTop(1968, 100, 50, 5), 0f);
+        assertEquals(5f, CaptionViewportPolicy.safeTop(1968, 100, 200, 5), 0f);
+        assertEquals(1968f, CaptionViewportPolicy.safeTop(1968, 5000, 0, 5), 0f);
+        assertEquals(0f, CaptionViewportPolicy.safeTop(0, 0, 0, 5), 0f);
+    }
+
+    @Test public void positionClampsToTheSafeRange() {
+        assertEquals(100, CaptionViewportPolicy.positionPercent(150));
+        assertEquals(100, CaptionViewportPolicy.positionPercent(100));
+        assertEquals(75, CaptionViewportPolicy.positionPercent(75));
+        assertEquals(0, CaptionViewportPolicy.positionPercent(-5));
+    }
+    @Test public void pipFontFitsSmallBoundsAndPreservesSmallerNativeFont() {
+        assertEquals(8f, CaptionViewportPolicy.pipFontSize(39f, 240, 128), 0f);
+        assertEquals(4f, CaptionViewportPolicy.pipFontSize(4f, 240, 128), 0f);
+        assertEquals(39f, CaptionViewportPolicy.pipFontSize(39f, 0, 0), 0f);
+        assertEquals(12f, CaptionViewportPolicy.pipFontSize(39f, 360, 192), 0f);
+    }
+
+    @Test public void captionWidthLimitsTextExtentWithoutUpscaling() {
+        assertEquals(1080, CaptionViewportPolicy.captionWidth(1080, 100));
+        assertEquals(756, CaptionViewportPolicy.captionWidth(1080, 70));
+        assertEquals(432, CaptionViewportPolicy.captionWidth(1080, 40));
+        assertEquals(432, CaptionViewportPolicy.captionWidth(1080, 10));
+        assertEquals(1080, CaptionViewportPolicy.captionWidth(1080, 130));
+        assertEquals(0, CaptionViewportPolicy.captionWidth(0, 70));
     }
 }

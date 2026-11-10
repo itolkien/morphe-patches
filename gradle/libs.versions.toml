@@ -4,6 +4,7 @@
 agp = "9.1.0"
 androidx-core = "1.18.0"    # 1.19.0+ requires upgrading android compile sdk
 androidx-javascriptengine = "1.1.1"
+androidx-text-vertical = "1.0.0-beta03"
 annotation = "1.11.0"
 collections4 = "4.6.0"
 gson = "2.15.0"
@@ -20,6 +21,7 @@ protoc = "4.36.2"
 smali = "4220ae75f7"
 
 [libraries]
+androidx-text-vertical = { module = "androidx.text:text-vertical", version.ref = "androidx-text-vertical" }
 androidx-core = { module = "androidx.core:core", version.ref = "androidx-core" }
 androidx-javascriptengine = { module = "androidx.javascriptengine:javascriptengine", version.ref = "androidx-javascriptengine" }
 annotation = { module = "androidx.annotation:annotation", version.ref = "annotation" }

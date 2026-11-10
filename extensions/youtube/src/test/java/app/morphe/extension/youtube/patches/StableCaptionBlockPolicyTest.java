@@ -8,6 +8,35 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 public class StableCaptionBlockPolicyTest {
+    @Test public void manualHeaderReferencesKeepMissingDuplicateAndLiteralAliasRejection() {
+        String input = "<timedtext format='3'><head><wp id='1'/><ws id='1'/></head>"
+                + "<body><w t='0' id='1' wp='1' ws='1'/>"
+                + "<p t='0' d='1000' w='1'>source</p></body></timedtext>";
+        assertNotNull(StableCaptionBlockPolicy.parseManual(
+                CaptionXml.read(input.getBytes(StandardCharsets.UTF_8))));
+        for (String invalid : List.of(
+                input.replace("ws='1'", "ws='9'"),
+                input.replace("</head>", "<ws id='1'/></head>"),
+                input.replace("</head>", "<wp id='1'/></head>"),
+                input.replace("wp='1'", "wp='+1'"))) {
+            assertNull(StableCaptionBlockPolicy.parseManual(
+                    CaptionXml.read(invalid.getBytes(StandardCharsets.UTF_8))));
+        }
+    }
+
+    @Test public void largeUnsupportedManualWindowSetRemainsNative() {
+        var header = new StringBuilder();
+        var windows = new StringBuilder();
+        for (int i = 0; i < 1000; i++) {
+            header.append("<wp id='").append(i).append("'/>");
+            windows.append("<w t='0' id='").append(i).append("' wp='").append(i).append("'/>");
+        }
+        byte[] input = ("<timedtext format='3'><head>" + header + "</head><body>" + windows
+                + "<p t='0' d='1000' w='0'>source</p></body></timedtext>")
+                .getBytes(StandardCharsets.UTF_8);
+        assertNull(StableCaptionBlockPolicy.parseManual(CaptionXml.read(input)));
+    }
+
     static byte[] xml(String body) {
         return ("<timedtext format='3'><head><ws id='1' sd='3'/></head><body><w t='0' id='1'/>"
                         + body

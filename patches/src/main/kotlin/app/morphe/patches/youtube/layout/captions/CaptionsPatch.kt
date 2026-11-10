@@ -84,7 +84,7 @@ val captionsPatch = patch(
             "morphe_auto_translate_additional_languages",
         )
         val presentation = take(
-            "morphe_caption_scale",
+            "morphe_caption_appearance",
             "morphe_stable_caption_blocks",
             "morphe_auto_captions_style",
             "morphe_captions_in_pip",

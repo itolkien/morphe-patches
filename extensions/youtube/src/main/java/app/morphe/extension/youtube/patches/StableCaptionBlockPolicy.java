@@ -11,22 +11,25 @@ import static app.morphe.extension.youtube.patches.CaptionXml.children;
 
 import androidx.annotation.Nullable;
 
+import app.morphe.extension.shared.Logger;
+
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
+import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.function.BooleanSupplier;
+import java.util.List;
 import java.util.Locale;
-import java.text.BreakIterator;
-
-import app.morphe.extension.shared.Logger;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /** Source-timed complete blocks; the renderer supplies the actual two-line capacity. */
 final class StableCaptionBlockPolicy {
@@ -35,10 +38,10 @@ final class StableCaptionBlockPolicy {
     private static final long MAX_NATIVE_CUE_SAMPLES = 1000000;
     static final long MAX_PREVIEW_MS = 8000, MIN_DURATION_MS = 1500, MAX_GAP_MS = 2000;
 
-    /**
-     * Languages written without spaces between words, limited by characters instead of words.
-     */
-    private static final List<String> COMPACT_LANGUAGES = List.of("zh", "ja", "ko", "th", "lo", "km", "my");
+    /** Languages written without spaces between words, limited by characters instead of words. */
+    private static final List<String> COMPACT_LANGUAGES =
+            List.of("zh", "ja", "ko", "th", "lo", "km", "my");
+
     private static final int MAX_COMPACT_SOURCE_CHARS = 30;
     private static final int MAX_SOURCE_WORDS = 15;
     private static final int MAX_MULTI_ATOM_SOURCE_CHARS = 80;
@@ -48,15 +51,33 @@ final class StableCaptionBlockPolicy {
     }
 
     static final class Block {
+        final Map<Integer, String> windows;
+        final Map<Integer, NativeCaptionRunPlan> runPlans;
         final long start, end;
         final String text;
         final boolean fits;
 
         Block(long start, long end, String text, boolean fits) {
+            this(start, end, text, fits, Map.of());
+        }
+
+        Block(long start, long end, String text, boolean fits, Map<Integer, String> windows) {
+            this(start, end, text, fits, windows, Map.of());
+        }
+
+        Block(
+                long start,
+                long end,
+                String text,
+                boolean fits,
+                Map<Integer, String> windows,
+                Map<Integer, NativeCaptionRunPlan> runPlans) {
+            this.runPlans = Map.copyOf(runPlans);
             this.start = start;
             this.end = end;
             this.text = text;
             this.fits = fits;
+            this.windows = Collections.unmodifiableMap(new LinkedHashMap<>(windows));
         }
     }
 
@@ -74,13 +95,18 @@ final class StableCaptionBlockPolicy {
     }
 
     private final List<Atom> atoms;
+    @Nullable private final List<Block> nativeSourcePlan;
     private final int[] characters;
     private final boolean[] boundaries;
-    @Nullable
-    private List<Block> sourcePlan;
+    @Nullable private List<Block> sourcePlan;
     private boolean sourcePlanCompact;
 
     private StableCaptionBlockPolicy(List<Atom> atoms) {
+        this(atoms, null);
+    }
+
+    private StableCaptionBlockPolicy(List<Atom> atoms, @Nullable List<Block> nativeSourcePlan) {
+        this.nativeSourcePlan = nativeSourcePlan == null ? null : List.copyOf(nativeSourcePlan);
         this.atoms = List.copyOf(atoms);
         characters = new int[atoms.size() + 1];
         boundaries = new boolean[atoms.size() + 1];
@@ -101,17 +127,22 @@ final class StableCaptionBlockPolicy {
     /** Accept ordinary bottom-center authored captions, leaving special layouts native. */
     static StableCaptionBlockPolicy parseManual(Document document) {
         if (document == null) return null;
+        Map<String, Map<String, Integer>> definitionCounts = new LinkedHashMap<>();
         for (String tag : List.of("wp", "ws")) {
+            Map<String, Integer> counts = new LinkedHashMap<>();
             NodeList definitions = document.getElementsByTagName(tag);
             for (int i = 0; i < definitions.getLength(); i++) {
                 Element e = (Element) definitions.item(i);
                 if (!children(e).isEmpty()) return null;
                 if (tag.equals("wp")) {
                     if (!attributes(e, "id", "ap", "ah", "av", "rc", "cc")
-                            || !defaultValue(e, "ap", "7") || !defaultValue(e, "ah", "50")
+                            || !defaultValue(e, "ap", "7")
+                            || !defaultValue(e, "ah", "50")
                             || !defaultValue(e, "av", "100")) return null;
                 } else if (!attributes(e, "id", "ju") || !defaultValue(e, "ju", "2")) return null;
+                counts.merge(e.getAttribute("id"), 1, Integer::sum);
             }
+            definitionCounts.put(tag, counts);
         }
         NodeList windows = document.getElementsByTagName("w");
         for (int i = 0; i < windows.getLength(); i++) {
@@ -119,38 +150,55 @@ final class StableCaptionBlockPolicy {
             if (!attributes(window, "t", "id", "wp", "ws")) return null;
             for (String tag : List.of("wp", "ws")) {
                 if (!window.hasAttribute(tag)) continue;
-                NodeList definitions = document.getElementsByTagName(tag);
-                int matches = 0;
-                for (int j = 0; j < definitions.getLength(); j++)
-                    if (window.getAttribute(tag).equals(((Element) definitions.item(j)).getAttribute("id"))) matches++;
-                if (matches != 1) return null;
+                if (definitionCounts.get(tag).getOrDefault(window.getAttribute(tag), 0) != 1)
+                    return null;
             }
         }
         return parse(document, false, true);
     }
 
-    /** Uses native complete cue text for translation; word-reveal events do not become fragments. */
+    /**
+     * Uses native complete cue text for translation; word-reveal events do not become fragments.
+     */
     @Nullable
-    static StableCaptionBlockPolicy fromNative(StableCaptionBlocks.Timeline timeline,
-                                               BooleanSupplier current) {
+    static StableCaptionBlockPolicy fromNative(
+            StableCaptionBlocks.Timeline timeline, BooleanSupplier current) {
         List<Long> times = timeline.patch_getCaptionEventTimes();
         if (times.size() < 2 || times.size() > MAX_NATIVE_EVENTS) return null;
         List<Atom> atoms = new ArrayList<>();
+        List<Block> nativePlan = new ArrayList<>();
         for (int i = 0; i < times.size() - 1; i++) {
             if ((i & 63) == 0 && !current.getAsBoolean()) return null;
             long start = times.get(i), end = times.get(i + 1);
             if (start < 0 || end <= start) return null;
             List<?> cues = timeline.patch_getOriginalCaptions(start);
-            if (cues == null || (long) cues.size() * times.size() > MAX_NATIVE_CUE_SAMPLES) return null;
+            if (cues == null || (long) cues.size() * times.size() > MAX_NATIVE_CUE_SAMPLES)
+                return null;
             Set<String> texts = new LinkedHashSet<>();
+            Map<Integer, String> windows = new LinkedHashMap<>();
+            Map<Integer, NativeCaptionRunPlan> runs = new LinkedHashMap<>();
             int characters = 0;
+            int windowCharacters = 0;
             for (Object item : cues) {
-                if (!(item instanceof StableCaptionBlocks.Cue cue) || !cue.patch_isCaptionVisible()) continue;
+                if (!(item instanceof StableCaptionBlocks.Cue cue) || !cue.patch_isCaptionVisible())
+                    continue;
                 CharSequence full = cue.patch_getOriginalCaptionFull();
                 if (full == null) continue;
                 if (full.length() > 4096) return null;
-                String text = full.toString().replace("\u200b", "").replace("\ufeff", "")
-                        .replaceAll("\\s+", " ").strip();
+                String raw = NativeCaptionRuby.sourceText(full).toString();
+                String text =
+                        raw.replace("\u200b", "")
+                                .replace("\ufeff", "")
+                                .replaceAll("\\s+", " ")
+                                .strip();
+                if (!text.isEmpty()) {
+                    String previous = windows.putIfAbsent(cue.patch_getCaptionId(), raw);
+                    NativeCaptionRunPlan plan = NativeCaptionRuns.capture(full);
+                    if (plan != null) runs.put(cue.patch_getCaptionId(), plan);
+                    if (previous != null && !previous.equals(raw)) return null;
+                    if (previous == null) windowCharacters += raw.length();
+                    if (windowCharacters > 4096) return null;
+                }
                 if (!text.isEmpty() && texts.add(text)) {
                     characters += text.length() + (texts.size() == 1 ? 0 : 1);
                     if (characters > 4096) return null;
@@ -158,6 +206,24 @@ final class StableCaptionBlockPolicy {
             }
             String text = String.join(" ", texts);
             if (text.isEmpty()) continue;
+            if (!nativePlan.isEmpty()
+                    && nativePlan.get(nativePlan.size() - 1).end == start
+                    && nativePlan.get(nativePlan.size() - 1).windows.equals(windows)
+                    && nativePlan.get(nativePlan.size() - 1).runPlans.equals(runs)) {
+                Block previous = nativePlan.get(nativePlan.size() - 1);
+                nativePlan.set(
+                        nativePlan.size() - 1,
+                        new Block(
+                                previous.start,
+                                end,
+                                previous.text,
+                                true,
+                                previous.windows,
+                                previous.runPlans));
+            } else {
+                if (nativePlan.size() >= MAX_ATOMS) return null;
+                nativePlan.add(new Block(start, end, text, true, windows, runs));
+            }
             if (!atoms.isEmpty()) {
                 Atom last = atoms.get(atoms.size() - 1);
                 if (last.end == start && last.text.equals(text)) {
@@ -168,7 +234,7 @@ final class StableCaptionBlockPolicy {
             if (atoms.size() >= MAX_ATOMS) return null;
             atoms.add(new Atom(start, end, text, true));
         }
-        return atoms.isEmpty() ? null : new StableCaptionBlockPolicy(atoms);
+        return atoms.isEmpty() ? null : new StableCaptionBlockPolicy(atoms, nativePlan);
     }
 
     private static boolean defaultValue(Element element, String name, String value) {
@@ -204,8 +270,9 @@ final class StableCaptionBlockPolicy {
             boolean barrier = false;
             for (Element e : children(body)) {
                 if (e.getTagName().equals("w")) {
-                    if (window != null && !window.isEmpty() || number(e, "t") != 0 || e.getAttribute("id").isEmpty())
-                        return null;
+                    if (window != null && !window.isEmpty()
+                            || number(e, "t") != 0
+                            || e.getAttribute("id").isEmpty()) return null;
                     window = e.getAttribute("id");
                     continue;
                 }
@@ -228,14 +295,23 @@ final class StableCaptionBlockPolicy {
                 List<Element> segments = children(e);
                 if (segments.size() > 2048) return null;
                 if (manual) {
-                    if (e.hasAttribute("p") || e.hasAttribute("a")
-                            || !atoms.isEmpty() && start < atoms.get(atoms.size() - 1).end) return null;
+                    if (e.hasAttribute("p")
+                            || e.hasAttribute("a")
+                            || !atoms.isEmpty() && start < atoms.get(atoms.size() - 1).end)
+                        return null;
                     for (Element segment : segments)
-                        if (!segment.getTagName().equals("s") || !children(segment).isEmpty()
+                        if (!segment.getTagName().equals("s")
+                                || !children(segment).isEmpty()
                                 || !attributes(segment, "t", "ac")
-                                || segment.hasAttribute("t") && number(segment, "t") != 0) return null;
-                    if (!add(atoms, start, start + duration,
-                            e.getTextContent().replaceAll("[\\r\\n]+", " "), true, true)) return null;
+                                || segment.hasAttribute("t") && number(segment, "t") != 0)
+                            return null;
+                    if (!add(
+                            atoms,
+                            start,
+                            start + duration,
+                            e.getTextContent().replaceAll("[\\r\\n]+", " "),
+                            true,
+                            true)) return null;
                     continue;
                 }
                 int before = atoms.size();
@@ -245,8 +321,7 @@ final class StableCaptionBlockPolicy {
                 if (segments.isEmpty()) {
                     String text = e.getTextContent();
                     if (source) text = text.replaceAll("[\\r\\n]+", " ");
-                    if (!add(atoms, start, start + duration, text, true, barrier))
-                        return null;
+                    if (!add(atoms, start, start + duration, text, true, barrier)) return null;
                 } else {
                     for (Node n = e.getFirstChild(); n != null; n = n.getNextSibling())
                         if ((n.getNodeType() == Node.TEXT_NODE
@@ -257,7 +332,8 @@ final class StableCaptionBlockPolicy {
                                 || !children(segment).isEmpty()
                                 || !attributes(segment, "t", "p", "ac")) return null;
                         long offset = segment.hasAttribute("t") ? number(segment, "t") : 0;
-                        if (offset < 0 || offset < previousOffset || offset >= duration) return null;
+                        if (offset < 0 || offset < previousOffset || offset >= duration)
+                            return null;
                         previousOffset = offset;
                         String text = segment.getTextContent();
                         if (source) text = text.replaceAll("[\\r\\n]+", " ");
@@ -370,16 +446,22 @@ final class StableCaptionBlockPolicy {
     }
 
     /**
-     * Uses the same reading-time planner before either translation or screen measurement.
-     * The plan is kept, since toggling captions can create a new session on the main thread.
+     * Uses the same reading-time planner before either translation or screen measurement. The plan
+     * is kept, since toggling captions can create a new session on the main thread.
      */
     synchronized List<Block> sourceBlocks(String language) {
+        if (nativeSourcePlan != null) return nativeSourcePlan;
         String code = Locale.forLanguageTag(language).getLanguage();
         final boolean compact = COMPACT_LANGUAGES.contains(code);
         if (sourcePlan == null || sourcePlanCompact != compact) {
-            sourcePlan = plan(text -> (compact
-                    ? text.codePointCount(0, text.length()) <= MAX_COMPACT_SOURCE_CHARS
-                    : text.split("\\s+").length <= MAX_SOURCE_WORDS), true);
+            sourcePlan =
+                    plan(
+                            text ->
+                                    (compact
+                                            ? text.codePointCount(0, text.length())
+                                                    <= MAX_COMPACT_SOURCE_CHARS
+                                            : text.split("\\s+").length <= MAX_SOURCE_WORDS),
+                            true);
             sourcePlanCompact = compact;
         }
         return sourcePlan;
@@ -415,9 +497,13 @@ final class StableCaptionBlockPolicy {
                 if (!boundary(to)) continue;
                 Block candidate = block(from, to, true);
                 long duration = candidate.end - candidate.start;
-                if (duration <= 0 || source && (duration > MAX_PREVIEW_MS
-                        || to > from + 1
-                        && candidate.text.codePointCount(0, candidate.text.length()) > MAX_MULTI_ATOM_SOURCE_CHARS)) continue;
+                if (duration <= 0
+                        || source
+                                && (duration > MAX_PREVIEW_MS
+                                        || to > from + 1
+                                                && candidate.text.codePointCount(
+                                                                0, candidate.text.length())
+                                                        > MAX_MULTI_ATOM_SOURCE_CHARS)) continue;
                 long missing = shortfall(candidate) + shortfall[to];
                 int chars = candidate.text.codePointCount(0, candidate.text.length());
                 // Relative reading load, not a language-specific characters-per-second limit.
@@ -436,9 +522,12 @@ final class StableCaptionBlockPolicy {
             }
             if (next[from] == 0) {
                 int to = from + 1;
-                while (to < size && !boundary(to) && (!source
-                        || !atoms.get(to).barrierBefore
-                                && atoms.get(to).start - atoms.get(to - 1).end <= MAX_GAP_MS)) to++;
+                while (to < size
+                        && !boundary(to)
+                        && (!source
+                                || !atoms.get(to).barrierBefore
+                                        && atoms.get(to).start - atoms.get(to - 1).end
+                                                <= MAX_GAP_MS)) to++;
                 next[from] = to;
                 Block nativeBlock = block(from, to, false);
                 bestShort = shortfall(nativeBlock) + shortfall[to];

@@ -11,11 +11,73 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.Assert.*;
 
 public class CaptionBlockTranslatorTest {
+    @Test public void oversizedStyledResponseUsesAlignedPlainFallback() throws Exception {
+        Fixture f = new Fixture();
+        var run = new app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run(
+                "source", "one", 0, Map.of("fc", "#FF0000"), Map.of());
+        var scene = new app.morphe.extension.youtube.patches.captions.model.CaptionScene(List.of(
+                new app.morphe.extension.youtube.patches.captions.model.CaptionScene.Window(
+                        "window", 100, 900, Map.of(), Map.of(), Map.of(), List.of(run))));
+        f.add(200, google("<span id='m0'>" + "x".repeat(100000) + "</span>"));
+        f.add(200, google("eins"));
+        var result = CaptionSceneTranslator.translate(scene, "en", "de", f.translator, () -> true);
+        assertTrue(result.complete());
+        var translated = result.scene().windows().get(0).runs().get(0);
+        assertEquals("eins", translated.text());
+        assertEquals("source", translated.id());
+        assertEquals("#FF0000", translated.pen().get("fc"));
+        assertEquals(2, f.urls.size());
+    }
+
+    @Test public void oversizedStyledOutputIsRejectedBeforeCacheAndCanRecover() throws Exception {
+        Fixture f = new Fixture();
+        var runs = List.of(new app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run(
+                "source", "one", 0, Map.of(), Map.of()));
+        f.add(200, google("<span id='m0'>" + "x".repeat(100000) + "</span>"));
+        assertThrows(IOException.class,
+                () -> f.translator.translateStyled("en", "de", runs, () -> true));
+        assertNull(f.translator.translateStyled("en", "de", runs, () -> true));
+        assertEquals(1, f.urls.size());
+        f.now = 60000;
+        f.add(200, google("<span id='m0'>eins</span>"));
+        assertEquals("eins", f.translator.translateStyled("en", "de", runs, () -> true)
+                .parts().get(0).text());
+        assertEquals(2, f.urls.size());
+    }
+
+    @Test public void invalidStyledIdsNeverEnterCacheAndDoNotHammerTheProvider() throws Exception {
+        Fixture f = new Fixture();
+        var run = new app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run(
+                "source", "one", 0, Map.of(), Map.of());
+        f.add(200, google("<span id='m9'>wrong</span>"));
+        assertThrows(IOException.class, () -> f.translator.translateStyled("en", "de", List.of(run), () -> true));
+        assertNull(f.translator.translateStyled("en", "de", List.of(run), () -> true));
+        assertEquals(1, f.urls.size());
+        f.now = 60000;
+        f.add(200, google("<span id='m0'>eins</span>"));
+        assertEquals("eins", f.translator.translateStyled("en", "de", List.of(run), () -> true).parts().get(0).text());
+        assertEquals(2, f.urls.size());
+    }
+    @Test public void styledContextSendsMarkupAndCachesOnlyValidatedIds() throws Exception {
+        Fixture f = new Fixture();
+        var run = new app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run(
+                "source", "Hello <world>", 10, Map.of("fc", "#FF0000"), Map.of());
+        Reply reply = f.add(200, google("<span id='m0'>Hallo &lt;Welt&gt;</span>"));
+        var result = f.translator.translateStyled("en", "de", List.of(run), () -> true);
+        assertNotNull(result);
+        assertEquals("Hallo <Welt>", result.parts().get(0).text());
+        String request = new JSONArray(reply.sent.toString("UTF-8")).getJSONArray(0).getJSONArray(0).getString(0);
+        assertEquals("<span id=\"m0\">Hello &lt;world&gt;</span>", request);
+        assertEquals("other", f.translator.translateStyled("en", "de",
+                List.of(new app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run(
+                        "other", run.text(), 50, Map.of(), Map.of())), () -> true).parts().get(0).id());
+        assertEquals(1, f.urls.size());
+    }
     private static class Reply extends HttpURLConnection {
         final byte[] bytes;
         final ByteArrayOutputStream sent = new ByteArrayOutputStream();
         boolean closed, disconnected, outputClosed;
-        String retry, redirect, date;
+        String retry, redirect, date, encoding;
         final Map<String, String> headers = new HashMap<>();
         public void setRequestProperty(String name, String value) { headers.put(name, value); super.setRequestProperty(name, value); }
         Reply(int status, String body) throws Exception {
@@ -26,10 +88,31 @@ public class CaptionBlockTranslatorTest {
         public boolean usingProxy() { return false; }
         public void disconnect() { disconnected = true; }
         public int getResponseCode() throws IOException { return responseCode; }
-        public String getHeaderField(String key) { return "Retry-After".equals(key) ? retry : "Location".equals(key) ? redirect : "Date".equals(key) ? date : null; }
-        public InputStream getInputStream() { return new ByteArrayInputStream(bytes) {
-            public void close() throws IOException { closed = true; super.close(); }
-        }; }
+        public String getHeaderField(String key) {
+            return "Retry-After".equals(key) ? retry
+                    : "Location".equals(key) ? redirect
+                    : "Date".equals(key) ? date
+                    : "Content-Encoding".equals(key) ? encoding : null;
+        }
+        public InputStream getInputStream() {
+            byte[] body = bytes;
+            if ("gzip".equalsIgnoreCase(encoding)) {
+                try {
+                    ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+                    try (java.util.zip.GZIPOutputStream gzip =
+                            new java.util.zip.GZIPOutputStream(compressed)) {
+                        gzip.write(bytes);
+                    }
+                    body = compressed.toByteArray();
+                } catch (IOException ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+            final byte[] result = body;
+            return new ByteArrayInputStream(result) {
+                public void close() throws IOException { closed = true; super.close(); }
+            };
+        }
         public InputStream getErrorStream() { return getInputStream(); }
         public OutputStream getOutputStream() { return new FilterOutputStream(sent) {
             public void close() throws IOException { outputClosed = true; super.close(); }
@@ -203,7 +286,7 @@ public class CaptionBlockTranslatorTest {
                 reply.date = "Wed, 21 Oct 2015 07:28:00 GMT";
                 reply.retry = dates[i];
             }
-            var failure = (CaptionBlockTranslator.Failure) assertThrows(IOException.class, () -> f.translate("one"));
+            var failure = (CaptionTranslator.Failure) assertThrows(IOException.class, () -> f.translate("one"));
             assertEquals(delays[i], failure.retryAfterMs);
             f.now = delays[i] - 1;
             assertThrows(IOException.class, () -> f.translate("one"));
@@ -222,6 +305,34 @@ public class CaptionBlockTranslatorTest {
             f.now = 300_000; f.add(200, google("eins")); f.translate("one"); assertEquals(3, f.urls.size());
         }
     }
+    @Test public void partialCooldownDoesNotConsumeRecoveryAttemptsBeforeRetryAfter() throws Exception {
+        Fixture f = new Fixture();
+        f.add(200, google("eins"));
+        f.add(429, "limited").retry = "60";
+        f.add(429, "limited").retry = "60";
+        var source = List.of(
+                new StableCaptionBlockPolicy.Block(0, 3000, "one", true),
+                new StableCaptionBlockPolicy.Block(4000, 7000, "two", true));
+        var session = new CaptionSession(source, "en", "de", null, f.translator,
+                Runnable::run, () -> {}, () -> {}, () -> f.now);
+        session.demand(0);
+        assertEquals("eins", session.snapshot(0).primary);
+
+        f.now = 1000;
+        session.demand(100);
+        assertEquals(3, f.urls.size());
+        f.now = 60000;
+        f.add(503, "temporary");
+        f.add(503, "temporary");
+        session.demand(200);
+        f.now = 62000;
+        f.add(200, google("zwei"));
+        session.demand(300);
+
+        assertEquals("zwei", session.snapshot(4100).primary);
+        assertTrue(f.replies.isEmpty());
+    }
+
     @Test public void partialGoogleBatchCachesSuccessfulTextOnly() throws Exception {
         Fixture f = new Fixture();
         f.add(200, google("eins")); f.add(200, "[[null]]"); f.add(500, "bad");
@@ -230,6 +341,18 @@ public class CaptionBlockTranslatorTest {
         assertEquals(List.of("eins", "zwei"), f.translate("one", "two"));
         assertEquals("https://translate-pa.googleapis.com/v1/translateHtml", f.urls.get(3));
         assertEquals(4, f.urls.size());
+    }
+
+    @Test public void partialGoogleCooldownSurvivesUnthrottledFallbackFailure() throws Exception {
+        Fixture f = new Fixture();
+        f.add(200, google("eins"));
+        f.add(429, "limited").retry = "60";
+        f.add(503, "temporary");
+
+        var result = f.translator.translateBatch("en", "de", List.of("one", "two"), () -> true);
+
+        assertEquals(Arrays.asList("eins", null), result.texts);
+        assertEquals(60000, result.retryAfterMs);
     }
     @Test public void slowPrimaryLeavesFallbackTimeWithinOverallBudget() throws Exception {
         Fixture f = new Fixture();
@@ -261,6 +384,31 @@ public class CaptionBlockTranslatorTest {
         assertEquals(List.of("zwei"), f.translate("two"));
         assertEquals(5, f.urls.size());
     }
+    @Test public void followsSameHostHttpsRedirectAndDecodesCompressedResponse() throws Exception {
+        Fixture f = new Fixture();
+        Reply redirect = f.add(302, "moved");
+        redirect.redirect = "/v1/translateHtml?redirected";
+        Reply compressed = f.add(200, google("eins"));
+        compressed.encoding = "gzip";
+        assertEquals(List.of("eins"), f.translate("one"));
+        assertEquals(2, f.urls.size());
+        assertEquals("https://translate-pa.googleapis.com/v1/translateHtml?redirected", f.urls.get(1));
+        assertEquals("gzip", compressed.headers.get("Accept-Encoding"));
+        assertTrue(redirect.disconnected && compressed.disconnected && compressed.closed);
+    }
+
+    @Test public void rejectsRedirectThatLeavesProviderOrDowngradesHttps() throws Exception {
+        for (String location : List.of("https://evil.example/collect",
+                "http://translate-pa.googleapis.com/v1/translateHtml")) {
+            Fixture f = new Fixture();
+            f.add(302, "moved").redirect = location;
+            f.add(500, "unavailable");
+            assertThrows(IOException.class, () -> f.translate("one"));
+            assertEquals(2, f.urls.size());
+            assertTrue(f.urls.stream().noneMatch(url -> url.contains("evil.example")));
+        }
+    }
+
     @Test public void expiredBudgetPreventsFallback() throws Exception {
         Fixture f = new Fixture();
         Reply slow = new Reply(500, "bad") {
@@ -328,12 +476,12 @@ public class CaptionBlockTranslatorTest {
         Fixture f = new Fixture(); Reply limited = f.add(429, "limited"); limited.retry = "60";
         f.add(503, "unavailable");
         IOException failure = assertThrows(IOException.class, () -> f.translate("one"));
-        assertTrue(failure instanceof CaptionBlockTranslator.Failure);
-        assertEquals(60000, ((CaptionBlockTranslator.Failure) failure).retryAfterMs);
-        assertTrue(((CaptionBlockTranslator.Failure) failure).retryable);
+        assertTrue(failure instanceof CaptionTranslator.Failure);
+        assertEquals(60000, ((CaptionTranslator.Failure) failure).retryAfterMs);
+        assertTrue(((CaptionTranslator.Failure) failure).retryable);
         Fixture unequal = new Fixture(); unequal.add(429, "limited").retry = "60";
         unequal.add(429, "limited").retry = "120";
-        var longer = (CaptionBlockTranslator.Failure) assertThrows(IOException.class, () -> unequal.translate("one"));
+        var longer = (CaptionTranslator.Failure) assertThrows(IOException.class, () -> unequal.translate("one"));
         assertEquals(120000, longer.retryAfterMs);
     }
 

@@ -1,0 +1,304 @@
+--- a/androidx/text/vertical/LayoutRun.kt
++++ b/androidx/text/vertical/LayoutRun.kt
+@@ -182,11 +182,11 @@
+ 
+             // `Unknown` and `Before` both put the mark on the right side, as ruby does.
+             if (emphasis?.position != AnnotationPosition.After) {
+-                leftSide = min(leftSide, -rPaint.textSize * 0.5f)
+-                rightSide = max(rightSide, rPaint.textSize * 0.5f + emphasisWidth)
++                leftSide = min(leftSide, -rPaint.textSize * 0.5f - rPaint.baselineShift)
++                rightSide = max(rightSide, rPaint.textSize * 0.5f - rPaint.baselineShift + emphasisWidth)
+             } else {
+-                leftSide = min(leftSide, -rPaint.textSize * 0.5f - emphasisWidth)
+-                rightSide = max(rightSide, rPaint.textSize * 0.5f)
++                leftSide = min(leftSide, -rPaint.textSize * 0.5f - rPaint.baselineShift - emphasisWidth)
++                rightSide = max(rightSide, rPaint.textSize * 0.5f - rPaint.baselineShift)
+             }
+ 
+             rPaint.getFontMetricsIntCompat(text, rStart, rCount, rStart, rCount, false, fontMetrics)
+@@ -222,6 +222,15 @@
+     }
+ 
+     override fun draw(canvas: Canvas, originX: Float, originY: Float, paint: TextPaint) {
++        val rotation = (text as? Spanned)?.getSpans(start, end, TextOrientationSpan.CombineUpright::class.java)
++            ?.lastOrNull()?.rotationDegrees ?: 0f
++        canvas.withSave {
++            rotate(rotation, originX + (leftSideOffset + rightSideOffset) / 2, originY + height / 2)
++            drawCombined(this, originX, originY, paint)
++        }
++    }
++
++    private fun drawCombined(canvas: Canvas, originX: Float, originY: Float, paint: TextPaint) {
+         var x = originX + leftSideOffset + (width - textWidth) / 2 // centering
+         val y = originY - ascent
+         text.forStyleRuns(start, end, paint) { rStart, rEnd, rPaint, bgColor, fontShear, _ ->
+@@ -233,12 +242,12 @@
+                 canvas.drawBackground(x, y + ascent, w, h, bgColor)
+ 
+                 if (fontShear == 0f) {
+-                    canvas.drawText(text, rStart, rEnd, x, y, this)
++                    canvas.drawTextWithOutline(text, rStart, rEnd, x, y, this)
+                 } else {
+                     canvas.withSave {
+                         translate(x, y)
+                         skew(-fontShear, 0f)
+-                        drawText(text, rStart, rEnd, 0f, 0f, this@withTextScaleX)
++                        drawTextWithOutline(text, rStart, rEnd, 0f, 0f, this@withTextScaleX)
+                     }
+                 }
+ 
+@@ -296,10 +305,11 @@
+         var descent = 0f
+ 
+         val metrics = FontMetrics()
+-        text.forStyleRuns(start, end, paint) { rStart, rEnd, rPaint, _, _, _ ->
++        text.forStyleRuns(start, end, paint) { rStart, rEnd, rPaint, _, _, emphasis ->
+             height += rPaint.measureText(text, rStart, rEnd)
+-            leftSide = min(leftSide, -rPaint.textSize * 0.5f)
+-            rightSide = max(rightSide, rPaint.textSize * 0.5f)
++            val mark = rPaint.textSize * (emphasis?.scale ?: 0f)
++            leftSide = min(leftSide, -rPaint.textSize * 0.5f - rPaint.baselineShift - if (emphasis?.position == AnnotationPosition.After) mark else 0f)
++            rightSide = max(rightSide, rPaint.textSize * 0.5f - rPaint.baselineShift + if (emphasis?.position != AnnotationPosition.After) mark else 0f)
+             rPaint.getFontMetrics(metrics)
+             ascent = min(ascent, metrics.ascent)
+             descent = max(descent, metrics.descent)
+@@ -319,21 +329,39 @@
+             rotate(90f, 0f, 0f)
+ 
+             var x = 0f
+-            text.forStyleRuns(start, end, paint) { rStart, rEnd, rPaint, bgColor, fontShear, _ ->
++            text.forStyleRuns(start, end, paint) { rStart, rEnd, rPaint, bgColor, fontShear, emphasis ->
+                 val width = rPaint.measureText(text, rStart, rEnd)
+                 drawBackground(x, ascent, width, descent - ascent, bgColor)
+ 
+                 if (fontShear == 0f) {
+-                    drawText(text, rStart, rEnd, x, 0f, rPaint)
++                    drawTextWithOutline(text, rStart, rEnd, x, rPaint.baselineShift.toFloat(), rPaint)
+                 } else {
+                     withSave {
+-                        translate(x, 0f)
++                        translate(x, rPaint.baselineShift.toFloat())
+                         skew(-fontShear, 0f)
+-                        drawText(text, rStart, rEnd, 0f, 0f, rPaint)
++                        drawTextWithOutline(text, rStart, rEnd, 0f, 0f, rPaint)
+                     }
+                 }
+ 
+-                // TODO: Draw Emphasis for rotated text.
++                if (emphasis != null) {
++                    val side = if (emphasis.position == AnnotationPosition.After) -1f else 1f
++                    val markY = (ascent + descent) / 2 - side * rPaint.textSize * (1f + emphasis.scale) / 2
++                    val rtl = android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR.isRtl(text, rStart, rEnd - rStart)
++                    text.forEachGrapheme(rStart, rEnd, rPaint.textLocale) { first, last ->
++                        if (isEmphasisTarget(Character.codePointAt(text, first))) {
++                            val before = rPaint.getRunAdvance(text, rStart, rEnd, rStart, rEnd, rtl, first)
++                            val after = rPaint.getRunAdvance(text, rStart, rEnd, rStart, rEnd, rtl, last)
++                            val center = if (rtl) width - (before + after) / 2 else (before + after) / 2
++                            withSave {
++                                translate(x + center, markY)
++                                rotate(-90f)
++                                rPaint.withTextScale(emphasis.scale) {
++                                    drawTextVertical(emphasis.letter, 0f, -measureTextVertical(emphasis.letter) / 2, this)
++                                }
++                            }
++                        }
++                    }
++                }
+                 // TODO(b/571931500): Draw vertical underline and strikethrough for rotated text.
+ 
+                 x += width
+@@ -387,15 +415,15 @@
+             val emphasisWidth = rPaint.textSize * (emphasis?.scale ?: 0f)
+ 
+             height += rPaint.measureTextVertical(text, rStart, rEnd)
+-            baseLeft = min(baseLeft, -halfCharWidth)
+-            baseRight = max(baseRight, halfCharWidth)
++            baseLeft = min(baseLeft, -halfCharWidth - rPaint.baselineShift)
++            baseRight = max(baseRight, halfCharWidth - rPaint.baselineShift)
+             // `Unknown` and `Before` both put the mark on the right side, as ruby does.
+             if (emphasis?.position != AnnotationPosition.After) {
+-                left = min(left, -halfCharWidth)
+-                right = max(right, halfCharWidth + emphasisWidth)
++                left = min(left, -halfCharWidth - rPaint.baselineShift)
++                right = max(right, halfCharWidth - rPaint.baselineShift + emphasisWidth)
+             } else {
+-                left = min(left, -halfCharWidth - emphasisWidth)
+-                right = max(right, halfCharWidth)
++                left = min(left, -halfCharWidth - rPaint.baselineShift - emphasisWidth)
++                right = max(right, halfCharWidth - rPaint.baselineShift)
+             }
+         }
+         this.height = height
+@@ -577,7 +605,7 @@
+     start: Int,
+     end: Int,
+     basePaint: TextPaint,
+-    crossinline block: (Int, Int, Paint, Int, Float, EmphasisSpan?) -> Unit,
++    crossinline block: (Int, Int, TextPaint, Int, Float, EmphasisSpan?) -> Unit,
+ ) {
+     // Easy case: if the text is a non-styled text, just call back entire text with applying
+     // vertical flag.
+--- a/androidx/text/vertical/Orientations.kt
++++ b/androidx/text/vertical/Orientations.kt
+@@ -107,7 +107,7 @@
+      *
+      * @see VerticalTextLayout
+      */
+-    public class CombineUpright : TextOrientationSpan
++    public class CombineUpright @JvmOverloads constructor(public val rotationDegrees: Float = 0f) : TextOrientationSpan
+ }
+ 
+ /** Represents the resolved orientation of a run of text. */
+--- a/androidx/text/vertical/CanvasCompat.kt
++++ b/androidx/text/vertical/CanvasCompat.kt
+@@ -66,10 +66,19 @@
+     text: CharSequence,
+     start: Int,
+     end: Int,
+-    x: Float,
++    originX: Float,
+     y: Float,
+     paint: Paint,
+ ) {
++    withTextOutline(text, start, end, paint) {
++        drawTextVerticalPlain(text, start, end, originX, y, paint)
++    }
++}
++
++private fun Canvas.drawTextVerticalPlain(
++    text: CharSequence, start: Int, end: Int, originX: Float, y: Float, paint: Paint,
++) {
++    val x = originX - ((paint as? android.text.TextPaint)?.baselineShift ?: 0)
+     if (start < 0 || end < 0 || start > end || end > text.length) {
+         throw IndexOutOfBoundsException()
+     }
+@@ -133,9 +142,5 @@
+ }
+ 
+ internal fun Canvas.drawTextVertical(text: String, x: Float, y: Float, paint: Paint) {
+-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+-        paint.withVerticalFlag() { drawText(text, x, y, paint) }
+-    } else {
+-        drawTextVertical(text as CharSequence, 0, text.length, x, y, paint)
+-    }
++    drawTextVertical(text as CharSequence, 0, text.length, x, y, paint)
+ }
+--- a/androidx/text/vertical/LineLayout.kt
++++ b/androidx/text/vertical/LineLayout.kt
+@@ -50,7 +50,7 @@
+  *
+  * @param runs The list of [LayoutRun]s composing this layout.
+  */
+-internal class LineLayout(val runs: List<LayoutRun>) {
++internal class LineLayout(val runs: List<LayoutRun>, private val gaps: Set<Int> = emptySet(), private val gapSize: Float = 0f) {
+     val start: Int
+         get() = runs.first().start
+ 
+@@ -104,7 +104,7 @@
+             }
+         leftSide = l
+         rightSide = r
+-        height = h
++        height = h + gapSize * runs.count { it.end in gaps }
+     }
+ 
+     /**
+@@ -115,11 +115,44 @@
+      * @param originY The y-coordinate of the drawing origin.
+      * @param paint The paint used for text rendering.
+      */
++    fun justified(target: Float, paint: TextPaint): LineLayout {
++        if (target <= height || start == end) return this
++        val text = runs.first().text
++        val breaker = android.icu.text.BreakIterator.getLineInstance(paint.textLocale)
++        breaker.setText(text.subSequence(start, end).toString())
++        val opportunities = sortedSetOf<Int>()
++        var owner = 0
++        var boundary = breaker.first()
++        while (boundary != android.icu.text.BreakIterator.DONE) {
++            val at = start + boundary
++            while (owner + 1 < runs.size && runs[owner].end <= at) owner++
++            val run = runs[owner]
++            val insideBox = (run is RubyLayoutRun || run is TateChuYokoLayoutRun) && at > run.start && at < run.end
++            if (at > start && at < end && !insideBox) opportunities.add(at)
++            boundary = breaker.next()
++        }
++        if (opportunities.isEmpty()) return this
++        val pieces = mutableListOf<LayoutRun>()
++        for (run in runs) {
++            if (run is RubyLayoutRun || run is TateChuYokoLayoutRun) { pieces.add(run); continue }
++            val orientation = if (run is RotateLayoutRun) ResolvedOrientation.Rotate else ResolvedOrientation.Upright
++            var first = run.start
++            for (at in opportunities.subSet(run.start + 1, run.end)) {
++                pieces.add(createLayoutRun(text, first, at, paint, orientation))
++                first = at
++            }
++            pieces.add(createLayoutRun(text, first, run.end, paint, orientation))
++        }
++        val natural = pieces.sumOf { it.height.toDouble() }.toFloat()
++        return if (natural >= target) this else LineLayout(pieces, opportunities, (target - natural) / opportunities.size)
++    }
++
+     fun draw(canvas: Canvas, originX: Float, originY: Float, paint: TextPaint) {
+         var y = originY
+         runs.forEach { run ->
+             run.draw(canvas, originX, y, paint)
+             y += run.height
++            if (run.end in gaps) y += gapSize
+         }
+     }
+ }
+--- a/androidx/text/vertical/LineBreaker.kt
++++ b/androidx/text/vertical/LineBreaker.kt
+@@ -128,6 +128,20 @@
+          * @param y The starting Y position for drawing. The right-top is the drawing origin.
+          * @param paint The TextPaint object to use for text rendering.
+          */
++        fun justified(height: Float, end: Int, paint: TextPaint): Result {
++            val adjusted = lineLayouts.map { line ->
++                if (line.end >= end || line.start == line.end || line.runs.first().text[line.end - 1] == '\n') line
++                else line.justified(height, paint)
++            }
++            return Result(adjusted, adjusted.sumOf { it.width.toDouble() }.toFloat(),
++                adjusted.minOfOrNull { it.leftSide } ?: 0f, adjusted.maxOfOrNull { it.rightSide } ?: 0f)
++        }
++
++        fun drawLine(canvas: Canvas, lineNo: Int, x: Float, y: Float, paint: TextPaint) {
++            val line = lineLayouts[lineNo]
++            line.draw(canvas, x - line.rightSide, y, paint)
++        }
++
+         fun draw(canvas: Canvas, x: Float, y: Float, paint: TextPaint) {
+             var currentX = x
+             lineLayouts.forEach { line ->
+--- a/androidx/text/vertical/VerticalTextLayout.kt
++++ b/androidx/text/vertical/VerticalTextLayout.kt
+@@ -44,6 +44,7 @@
+     internal val paint: TextPaint = TextPaint(),
+     @Px internal val height: Float = 0f,
+     internal val orientation: TextOrientation = TextOrientation.Mixed,
++    internal val justificationMode: Int = 0,
+ ) {
+     /** The computed width of the vertical text layout in pixels. */
+     @get:Px
+@@ -126,7 +127,8 @@
+     init {
+         require(start <= end && end <= text.length && height >= 0)
+ 
+-        result = LineBreaker.breakTextIntoLines(text, start, end, paint, height, orientation)
++        val measured = LineBreaker.breakTextIntoLines(text, start, end, paint, height, orientation)
++        result = if (justificationMode == 1) measured.justified(height, end, paint) else measured
+     }
+ 
+     /**
+@@ -136,6 +138,10 @@
+      * @param x The horizontal offset in pixels. The drawing origin is the top-right corner.
+      * @param y The vertical offset in pixels. The drawing origin is the top-right corner.
+      */
++    public fun drawLine(canvas: Canvas, line: Int, @Px x: Float, @Px y: Float) {
++        result.drawLine(canvas, line, x, y, paint)
++    }
++
+     public fun draw(canvas: Canvas, @Px x: Float, @Px y: Float) {
+         result.draw(canvas, x, y, paint)
+     }

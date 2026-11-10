@@ -45,13 +45,16 @@ public final class CaptionLanguagePreference extends CustomDialogListPreference 
         if (preferredLanguage) {
             labels.add(StringRef.str("morphe_language_DEFAULT"));
             values.add("default");
+        } else {
+            labels.add(StringRef.str("morphe_caption_language_video"));
+            values.add("video");
         }
 
         Locale locale = context.getResources().getConfiguration().getLocales().get(0);
         String selected = preferredLanguage
                 ? Settings.PREFERRED_CAPTION_LANGUAGE.get()
                 : Settings.SECONDARY_CAPTION_LANGUAGE.get();
-        String[] codes = AutoTranslateCaptionsPatch.translationLanguages(selected);
+        String[] codes = AutoTranslateCaptionsPatch.translationLanguages("video".equals(selected) ? "off" : selected);
         Map<String, String> names = new HashMap<>();
         for (String code : codes) {
             names.put(code, AutoTranslateCaptionsPatch.translationLanguageName(code, locale));

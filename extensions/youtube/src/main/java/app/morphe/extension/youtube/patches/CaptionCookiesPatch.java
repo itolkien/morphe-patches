@@ -9,21 +9,10 @@ public class CaptionCookiesPatch {
     private static final String USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
-    private static volatile boolean requireCookies = false;
-
-    /**
-     * Injection point.
-     */
-    public static boolean getRequireCookies() {
-        return requireCookies;
-    }
-
-    /**
-     * Injection point.
-     */
-    public static void setRequireCookies(String url) {
-        requireCookies = SET_CAPTION_COOKIES && !CAPTION_COOKIES.isEmpty()
-                && url != null && url.contains("api/timedtext");
+    /** Injection point. Cookie authorization belongs to this request's URL only. */
+    public static boolean shouldSetCookies(String url) {
+        return SET_CAPTION_COOKIES && !CAPTION_COOKIES.isEmpty()
+                && AutoTranslateCaptionsPatch.captionParameters(url) != null;
     }
 
     /**

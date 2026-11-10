@@ -20,7 +20,23 @@ public class CaptionSourceIdentityTest {
         assertEquals(source,CaptionTracks.sourceIdentity(track("en",URL.replace("a%2Bb","other"),"a.en.audio_1")));
         assertNotEquals(source,CaptionTracks.sourceIdentity(track("en",URL,"a.en.audio_2")));
     }
+    @Test public void audioVariantsRemainDistinctThroughTranslation() {
+        String first=CaptionTracks.sourceIdentity(track("en",URL+"&audio_track_id=one","a.en"));
+        String second=CaptionTracks.sourceIdentity(track("en",URL+"&audio_track_id=two","a.en"));
+        assertNotNull(first);
+        assertNotEquals(first,second);
+        assertNotEquals(first,CaptionTracks.sourceIdentity(track("en",URL,"a.en")));
+        assertEquals(second,CaptionTracks.sourceIdentity(track("de",URL+"&audio_track_id=two&tlang=de","ta.en.de")));
+    }
+    @Test public void audioIdentityCannotAliasAnEncodedNameOrMissingAudio() {
+        assertNotEquals(CaptionTracks.sourceIdentity(track("en",URL+"&audio_track_id=one%7Ctwo&name=three","a.en")),
+                CaptionTracks.sourceIdentity(track("en",URL+"&audio_track_id=one&name=two%7Cthree","a.en")));
+        assertNotEquals(CaptionTracks.sourceIdentity(track("en",URL+"&audio_track_id=","a.en")),
+                CaptionTracks.sourceIdentity(track("en",URL,"a.en")));
+    }
     @Test public void mismatchedOrUntrustedSourcesAreRejected() {
+        assertNull(CaptionTracks.sourceIdentity(track("en",URL+"&audio_track_id=one&audio_track_id=two","a.en")));
+        assertNull(CaptionTracks.sourceIdentity(track("en",URL+"&audio%5Ftrack_id=one","a.en")));
         assertNull(CaptionTracks.sourceIdentity(track("de",URL+"&tlang=fr","ta.en.fr")));
         assertNull(CaptionTracks.sourceIdentity(track("en",URL.replace("www.youtube.com","youtube.com.invalid"),"a.en")));
         assertNull(CaptionTracks.sourceIdentity(track("en",URL.replace("kind=asr","kind=manual"),"a.en")));

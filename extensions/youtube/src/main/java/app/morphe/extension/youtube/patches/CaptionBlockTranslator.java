@@ -8,6 +8,7 @@
 package app.morphe.extension.youtube.patches;
 
 import androidx.annotation.Nullable;
+import app.morphe.extension.youtube.patches.CaptionTranslator.Failure;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -18,6 +19,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -29,6 +31,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
+import java.util.zip.GZIPInputStream;
 
 import app.morphe.extension.shared.Logger;
 import app.morphe.extension.shared.requests.Requester;
@@ -37,7 +40,7 @@ import app.morphe.extension.shared.requests.Requester;
  * Blocking translation of an ordered batch of caption text, using Google with Edge as fallback.
  * Must be called on a worker thread. Scheduling belongs to the {@link CaptionSession}.
  */
-final class CaptionBlockTranslator implements CaptionSession.Translator {
+final class CaptionBlockTranslator implements CaptionTranslator {
     interface ConnectionFactory {
         HttpURLConnection open(String url) throws IOException;
     }
@@ -50,22 +53,10 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
         }
     }
 
-    static final class Failure extends IOException {
-        final long retryAfterMs;
-        final boolean retryable;
-
-        Failure(String message, long retryAfterMs, boolean retryable) {
-            super(message);
-            this.retryAfterMs = retryAfterMs;
-            this.retryable = retryable;
-        }
-    }
-
     private enum Provider {
         GOOGLE, MICROSOFT
     }
 
-    static final int MAX_BATCH_TEXTS = 5;
 
     static final CaptionBlockTranslator DEFAULT = new CaptionBlockTranslator(
             url -> Requester.openConnection(url), () -> System.nanoTime() / 1_000_000L);
@@ -77,8 +68,9 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
     private static final String MICROSOFT_URL = "https://edge.microsoft.com/translate/translatetext";
 
     private static final int BUDGET_MS = 8000;
+    private static final int MAX_REDIRECTS = 3;
     private static final int MAX_RESPONSE_BYTES = 256 * 1024;
-    private static final int MAX_OUTPUT_CHARS = 4096;
+    private static final int MAX_OUTPUT_CHARS = CaptionMarkup.MAX_OUTPUT_CODEPOINTS;
     private static final int CACHE_CAPACITY = 256;
 
     private static final long DEFAULT_COOLDOWN_SECONDS = 60;
@@ -94,6 +86,9 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
 
     private final ConnectionFactory connections;
     private final Clock clock;
+    private final Map<String, Long> unsupportedMarkup = new LinkedHashMap<>(64, .75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Long> entry) { return size() > 64; }
+    };
     private final Map<String, String> cache = new LinkedHashMap<>(CACHE_CAPACITY, .75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, String> entry) {
@@ -148,6 +143,54 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
     @Override
     public List<String> translate(String sourceLanguage, String targetLanguage, List<String> sourceTexts,
                                   BooleanSupplier active) throws IOException {
+        return translateBatch(sourceLanguage, targetLanguage, sourceTexts, active).texts;
+    }
+
+    @Override
+    public CaptionTranslator.StyledResult translateStyled(String sourceLanguage, String targetLanguage,
+            List<app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run> runs,
+            BooleanSupplier active) throws IOException {
+        checkActive(active);
+        int characters = 0;
+        for (var run : runs) {
+            characters += run.text().codePointCount(0, run.text().length());
+            if (characters > StableCaptionBlockPolicy.MAX_BLOCK_CHARS) return null;
+        }
+        if (characters == 0) return null;
+        String source = language(sourceLanguage), target = language(targetLanguage);
+        String html = CaptionMarkup.encode(runs);
+        String cacheKey = "styled:" + key(source, target, html);
+        String cached;
+        synchronized (cache) {
+            cached = cache.get(cacheKey);
+            if (cached == null && unsupportedMarkup.getOrDefault(cacheKey, 0L) > clock.millis()) return null;
+        }
+        if (cached != null) return CaptionMarkup.decode(cached, runs);
+        if (clock.millis() < googleCooldownUntil) throw new Failure("Caption Google cooling down",
+                googleCooldownUntil - clock.millis(), true);
+        try {
+            String response = googleHtml(source, target, html, clock.millis() + BUDGET_MS / 2, active);
+            CaptionTranslator.StyledResult result;
+            try { result = CaptionMarkup.decode(response, runs); }
+            catch (IOException invalidMarkup) {
+                Logger.printDebug(() -> "Captions owner=provider slot=styled phase=reject reason=markup");
+                synchronized (cache) { unsupportedMarkup.put(cacheKey, clock.millis() + VERIFICATION_COOLDOWN_MS); }
+                throw invalidMarkup;
+            }
+            checkActive(active);
+            synchronized (cache) { cache.put(cacheKey, response); }
+            Logger.printDebug(() -> "Captions owner=provider slot=styled phase=accept reason=validated");
+            return result;
+        } catch (JSONException error) {
+            synchronized (cache) { unsupportedMarkup.put(cacheKey, clock.millis() + VERIFICATION_COOLDOWN_MS); }
+            throw new IOException("Malformed structured caption response", error);
+        }
+    }
+
+    @Override
+    public CaptionTranslator.Batch translateBatch(String sourceLanguage, String targetLanguage,
+                                                         List<String> sourceTexts, BooleanSupplier active)
+            throws IOException {
         checkActive(active);
         String source = language(sourceLanguage);
         String target = language(targetLanguage);
@@ -158,7 +201,7 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
         for (String text : texts) {
             validateText(text, StableCaptionBlockPolicy.MAX_BLOCK_CHARS);
         }
-        if (source.equals(target)) return Collections.unmodifiableList(texts);
+        if (source.equals(target)) return new CaptionTranslator.Batch(Collections.unmodifiableList(texts), 0);
 
         List<String> result = new ArrayList<>();
         List<String> missing = new ArrayList<>();
@@ -170,15 +213,20 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
             result.add(value);
             if (value == null) missing.add(text);
         }
-        if (missing.isEmpty()) return Collections.unmodifiableList(result);
+        if (missing.isEmpty()) return new CaptionTranslator.Batch(Collections.unmodifiableList(result), 0);
 
         final long deadline = clock.millis() + BUDGET_MS;
         List<String> translated;
+        long retryDelay = 0;
         IOException failure = null;
         try {
-            translated = google(source, target, missing, Math.min(deadline, clock.millis() + BUDGET_MS / 2), active);
+            CaptionTranslator.Batch response = google(source, target, missing,
+                    Math.min(deadline, clock.millis() + BUDGET_MS / 2), active);
+            translated = response.texts;
+            retryDelay = response.retryAfterMs;
         } catch (IOException unavailable) {
             failure = unavailable;
+            retryDelay = retryDelay(unavailable);
             translated = new ArrayList<>(Collections.nCopies(missing.size(), null));
         }
 
@@ -196,6 +244,7 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
                 }
             } catch (IOException unavailable) {
                 failure = failure == null ? unavailable : combinedFailure(failure, unavailable);
+                retryDelay = Math.max(retryDelay, retryDelay(unavailable));
             }
         }
         checkActive(active);
@@ -216,7 +265,11 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
         if (!available) {
             throw failure == null ? new Failure("No valid caption translation", 0, false) : failure;
         }
-        return Collections.unmodifiableList(result);
+        return new CaptionTranslator.Batch(Collections.unmodifiableList(result), retryDelay);
+    }
+
+    private static long retryDelay(IOException failure) {
+        return failure instanceof Failure typed ? typed.retryAfterMs : 0;
     }
 
     private static Failure combinedFailure(IOException first, IOException second) {
@@ -272,13 +325,14 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
         return output(returnedText);
     }
 
-    private List<String> google(String source, String target, List<String> texts, long deadline,
+    private CaptionTranslator.Batch google(String source, String target, List<String> texts, long deadline,
                                 BooleanSupplier active) throws IOException {
         if (clock.millis() < googleCooldownUntil) {
             throw new Failure("Caption Google cooling down", googleCooldownUntil - clock.millis(), true);
         }
         List<String> values = new ArrayList<>();
         IOException failure = null;
+        long retryDelay = 0;
         boolean available = false;
         for (String text : texts) {
             String value = null;
@@ -286,18 +340,11 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
                 if (clock.millis() < googleCooldownUntil) {
                     throw new Failure("Caption Google cooling down", googleCooldownUntil - clock.millis(), true);
                 }
-                JSONArray body = new JSONArray().put(new JSONArray()
-                        .put(new JSONArray().put(escapeHtml(text)))
-                        .put(source).put(target)).put("wt_lib");
-                String response = request(Provider.GOOGLE, GOOGLE_URL, body.toString(), deadline, active);
-                JSONArray translations = new JSONArray(response).getJSONArray(0);
-                if (translations.length() != 1 || !(translations.get(0) instanceof String translation)) {
-                    throw new IOException("Invalid Google caption response");
-                }
-                value = output(translation);
+                value = output(googleHtml(source, target, escapeHtml(text), deadline, active));
                 available = true;
             } catch (IOException ex) {
                 failure = ex;
+                retryDelay = Math.max(retryDelay, retryDelay(ex));
             } catch (JSONException ex) {
                 Logger.printInfo(() -> "Malformed Google caption response", ex);
                 failure = new Failure("Malformed Google caption response", 0, false);
@@ -307,7 +354,19 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
         if (!available) {
             throw failure == null ? new Failure("No Google caption result", 0, false) : failure;
         }
-        return values;
+        return new CaptionTranslator.Batch(values, retryDelay);
+    }
+
+    private String googleHtml(String source, String target, String html, long deadline,
+                              BooleanSupplier active) throws IOException, JSONException {
+        JSONArray body = new JSONArray().put(new JSONArray()
+                .put(new JSONArray().put(html)).put(source).put(target)).put("wt_lib");
+        String response = request(Provider.GOOGLE, GOOGLE_URL, body.toString(), deadline, active);
+        JSONArray translations = new JSONArray(response).getJSONArray(0);
+        if (translations.length() != 1 || !(translations.get(0) instanceof String translation)) {
+            throw new IOException("Invalid Google caption response");
+        }
+        return translation;
     }
 
     private void paceGoogle(long deadline, BooleanSupplier active) throws IOException {
@@ -339,70 +398,110 @@ final class CaptionBlockTranslator implements CaptionSession.Translator {
         final boolean google = provider == Provider.GOOGLE;
         if (google) paceGoogle(deadline, active);
 
-        final int remaining = remaining(deadline);
-        HttpURLConnection connection = connections.open(url);
-        try {
-            synchronized (this) {
+        String current = url;
+        for (int redirects = 0; ; redirects++) {
+            final int remaining = remaining(deadline);
+            HttpURLConnection connection = connections.open(current);
+            try {
+                synchronized (this) {
+                    checkActive(active);
+                    pendingConnections.put(connection, active);
+                }
+                connection.setConnectTimeout(remaining);
+                connection.setReadTimeout(remaining);
+                connection.setInstanceFollowRedirects(false);
+                connection.setRequestMethod("POST");
+                byte[] payload = body.getBytes(StandardCharsets.UTF_8);
+                connection.setDoOutput(true);
+                connection.setRequestProperty("Content-Type",
+                        google ? "application/json+protobuf" : "application/json; charset=UTF-8");
+                connection.setRequestProperty("Accept-Encoding", "gzip");
+                if (google) connection.setRequestProperty("X-Goog-API-Key", GOOGLE_API_KEY);
+                connection.setFixedLengthStreamingMode(payload.length);
                 checkActive(active);
-                pendingConnections.put(connection, active);
-            }
-            connection.setConnectTimeout(remaining);
-            connection.setReadTimeout(remaining);
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("POST");
-            byte[] payload = body.getBytes(StandardCharsets.UTF_8);
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type",
-                    google ? "application/json+protobuf" : "application/json; charset=UTF-8");
-            if (google) connection.setRequestProperty("X-Goog-API-Key", GOOGLE_API_KEY);
-            connection.setFixedLengthStreamingMode(payload.length);
-            checkActive(active);
-            connection.connect();
-            checkActive(active);
-            connection.setReadTimeout(remaining(deadline));
-            try (OutputStream stream = connection.getOutputStream()) {
-                stream.write(payload);
-            }
-            connection.setReadTimeout(remaining(deadline));
-            final int status = connection.getResponseCode();
-            checkActive(active);
+                connection.connect();
+                checkActive(active);
+                connection.setReadTimeout(remaining(deadline));
+                try (OutputStream stream = connection.getOutputStream()) {
+                    stream.write(payload);
+                }
+                connection.setReadTimeout(remaining(deadline));
+                final int status = connection.getResponseCode();
+                checkActive(active);
 
-            if (status == HttpURLConnection.HTTP_FORBIDDEN || status == 429) {
-                final long seconds = retryAfterSeconds(connection);
-                final long until = clock.millis() + seconds * 1000;
-                if (google) googleCooldownUntil = until;
-                else microsoftCooldownUntil = until;
-                throw new Failure("Caption provider HTTP " + status, seconds * 1000, status == 429);
-            }
-            String location = google && status >= 300 && status < 400
-                    ? connection.getHeaderField("Location") : null;
-            if (location != null && (location.startsWith("https://www.google.com/sorry/")
-                    || location.startsWith("https://google.com/sorry/"))) {
-                googleCooldownUntil = clock.millis() + VERIFICATION_COOLDOWN_MS;
-                throw new Failure("Caption Google requires verification", VERIFICATION_COOLDOWN_MS, true);
-            }
-            if (status != HttpURLConnection.HTTP_OK) throw new IOException("Caption provider HTTP " + status);
+                if (status == HttpURLConnection.HTTP_FORBIDDEN || status == 429) {
+                    final long seconds = retryAfterSeconds(connection);
+                    final long until = clock.millis() + seconds * 1000;
+                    if (google) googleCooldownUntil = until;
+                    else microsoftCooldownUntil = until;
+                    throw new Failure("Caption provider HTTP " + status, seconds * 1000, status == 429);
+                }
+                String location = status >= 300 && status < 400
+                        ? connection.getHeaderField("Location") : null;
+                if (location != null && isGoogleChallenge(location)) {
+                    googleCooldownUntil = clock.millis() + VERIFICATION_COOLDOWN_MS;
+                    throw new Failure("Caption Google requires verification", VERIFICATION_COOLDOWN_MS, true);
+                }
+                if (status >= 300 && status < 400) {
+                    if (location == null || location.isBlank())
+                        throw new IOException("Caption provider redirect without location");
+                    if (redirects >= MAX_REDIRECTS)
+                        throw new IOException("Too many caption provider redirects");
+                    current = redirect(current, location);
+                    continue;
+                }
+                if (status != HttpURLConnection.HTTP_OK)
+                    throw new IOException("Caption provider HTTP " + status);
 
-            return readResponse(connection, deadline, active);
-        } finally {
-            synchronized (this) {
-                pendingConnections.remove(connection);
+                return readResponse(connection, deadline, active);
+            } finally {
+                synchronized (this) {
+                    pendingConnections.remove(connection);
+                }
+                closeErrorStream(connection);
+                connection.disconnect();
             }
-            closeErrorStream(connection);
-            connection.disconnect();
         }
     }
 
+    private static boolean isGoogleChallenge(String location) {
+        return location.startsWith("https://www.google.com/sorry/")
+                || location.startsWith("https://google.com/sorry/");
+    }
+
+    /** Follow only HTTPS redirects that stay on the provider host; never forward an API key. */
+    private static String redirect(String from, String location) throws IOException {
+        URL base = new URL(from);
+        URL target = new URL(base, location);
+        if (!"https".equalsIgnoreCase(target.getProtocol())
+                || !base.getHost().equalsIgnoreCase(target.getHost())) {
+            throw new IOException("Caption provider redirect rejected");
+        }
+        return target.toString();
+    }
+
     private String readResponse(HttpURLConnection connection, long deadline, BooleanSupplier active) throws IOException {
-        try (InputStream stream = connection.getInputStream();
+        InputStream raw = connection.getInputStream();
+        String encoding = connection.getHeaderField("Content-Encoding");
+        InputStream stream = raw;
+        if (encoding != null && encoding.toLowerCase(Locale.ROOT).contains("gzip")) {
+            try {
+                stream = new GZIPInputStream(raw);
+            } catch (IOException invalidGzip) {
+                raw.close();
+                throw invalidGzip;
+            }
+        }
+        try (InputStream input = stream;
              ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[4096];
             while (true) {
                 checkActive(active);
                 connection.setReadTimeout(remaining(deadline));
-                final int count = stream.read(buffer);
+                final int count = input.read(buffer);
                 if (count == -1) break;
-                if (bytes.size() + count > MAX_RESPONSE_BYTES) throw new IOException("Caption response too large");
+                if (bytes.size() + count > MAX_RESPONSE_BYTES)
+                    throw new IOException("Caption response too large");
                 bytes.write(buffer, 0, count);
             }
             remaining(deadline);

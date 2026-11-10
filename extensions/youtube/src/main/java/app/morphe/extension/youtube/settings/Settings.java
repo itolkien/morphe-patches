@@ -437,6 +437,8 @@ public class Settings extends SharedYouTubeSettings {
     public static final BooleanSetting DISABLE_FULLSCREEN_AMBIENT_MODE = new BooleanSetting("morphe_disable_fullscreen_ambient_mode", FALSE, true, parentsAll(parentNot(ENHANCED_AMBIENT_MODE), parentNot(DISABLE_AMBIENT_MODE)));
 
     // Captions
+    public static final IntegerSetting CAPTION_VISIBILITY_REGULAR = new IntegerSetting("morphe_caption_visibility_regular", -1);
+    public static final IntegerSetting CAPTION_VISIBILITY_SHORTS = new IntegerSetting("morphe_caption_visibility_shorts", -1);
     public static final EnumSetting<AutoCaptionsStyle> AUTO_CAPTIONS_STYLE = new EnumSetting<>("morphe_auto_captions_style", AutoCaptionsStyle.BOTH_ENABLED, false);
     public static final StringSetting PREFERRED_CAPTION_LANGUAGE = new StringSetting("morphe_preferred_caption_language", "off", true);
     public static final BooleanSetting AUTO_TRANSLATE_ADDITIONAL_LANGUAGES = new BooleanSetting("morphe_auto_translate_additional_languages", TRUE);
@@ -449,7 +451,9 @@ public class Settings extends SharedYouTubeSettings {
     public static final BooleanSetting DUAL_CAPTIONS_ENABLED = new BooleanSetting("morphe_dual_captions_enabled", TRUE);
     public static final StringSetting SECONDARY_CAPTION_LANGUAGE = new StringSetting("morphe_secondary_caption_language", "off", true,
             () -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q);
+    public static final IntegerSetting CAPTION_VERTICAL_OFFSET = new IntegerSetting("morphe_caption_vertical_offset", 0, true);
     public static final IntegerSetting CAPTION_SCALE = new IntegerSetting("morphe_caption_scale", 100, true);
+    public static final IntegerSetting CAPTION_WIDTH = new IntegerSetting("morphe_caption_width", 100, true);
 
     // Miniplayer
     public static final BooleanSetting MINIPLAYER_DISABLE_RESUMING = new BooleanSetting("morphe_miniplayer_disable_resuming", FALSE, true);
@@ -1367,8 +1371,11 @@ public class Settings extends SharedYouTubeSettings {
     // Register SeekBar UI configs so the single shared SeekBarPreference class knows the
     // range, step, unit, integer setting that uses it.
     static {
+        SeekBarPreference.register(new SeekBarConfig(CAPTION_VERTICAL_OFFSET, 0, 100, 5, " %"));
         SeekBarPreference.register(new SeekBarConfig(CAPTION_SCALE,
                 30, 150, 5, "%"));
+        SeekBarPreference.register(new SeekBarConfig(CAPTION_WIDTH,
+                40, 100, 5, "%"));
         SeekBarPreference.register(new SeekBarConfig(SWIPE_ZONE_WIDTH,
                 5, 50, 1, "%"));
         SeekBarPreference.register(new SeekBarConfig(SWIPE_OVERLAY_OPACITY,

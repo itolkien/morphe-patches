@@ -52,6 +52,79 @@ public class CaptionInputReplayTest {
     }
 
     @Test
+    public void completeReplayKeepsSourceOpenUntilExplicitClose() throws Exception {
+        assertParserOwnedClose(1024, true);
+    }
+
+    @Test
+    public void oversizedReplayKeepsSourceOpenUntilExplicitClose() throws Exception {
+        assertParserOwnedClose(3, false);
+    }
+
+    @Test
+    public void replayReadAndCloseFailuresStillCloseSourceExactlyOnce() throws Exception {
+        int[] closeCalls = {0};
+        InputStream original = new InputStream() {
+            private boolean prefixRead;
+
+            @Override
+            public int read() throws IOException {
+                throw new IOException("read failure");
+            }
+
+            @Override
+            public int read(byte[] bytes, int offset, int length) throws IOException {
+                if (prefixRead) throw new IOException("read failure");
+                prefixRead = true;
+                for (int i = 0; i < length; i++) bytes[offset + i] = 1;
+                return length;
+            }
+
+            @Override
+            public void close() throws IOException {
+                closeCalls[0]++;
+                throw new IOException("close failure");
+            }
+        };
+        InputStream replay = CaptionInputReplay.copy(original, 3).input;
+        try {
+            read(replay);
+            fail("Expected source read failure");
+        } catch (IOException expected) {
+            assertEquals("read failure", expected.getMessage());
+        }
+        assertEquals(0, closeCalls[0]);
+        try {
+            replay.close();
+            fail("Expected source close failure");
+        } catch (IOException expected) {
+            assertEquals("close failure", expected.getMessage());
+        }
+        assertEquals(1, closeCalls[0]);
+        replay.close();
+        assertEquals(1, closeCalls[0]);
+    }
+
+    private static void assertParserOwnedClose(int limit, boolean complete) throws Exception {
+        byte[] source = "caption bytes".getBytes("UTF-8");
+        int[] closeCalls = {0};
+        InputStream original = new ByteArrayInputStream(source) {
+            @Override
+            public void close() {
+                closeCalls[0]++;
+            }
+        };
+        CaptionInputReplay.Copy copy = CaptionInputReplay.copy(original, limit);
+        assertEquals(complete, copy.complete);
+        assertArrayEquals(source, read(copy.input));
+        assertEquals("Reading through EOF must not close the parser-owned source", 0, closeCalls[0]);
+        copy.input.close();
+        assertEquals(1, closeCalls[0]);
+        copy.input.close();
+        assertEquals("Repeated close must not close the source again", 1, closeCalls[0]);
+    }
+
+    @Test
     public void sharedTrackRoutingRepairsInputAndRetainsParserOwnedClose() throws Exception {
         byte[] source =
                 ("<timedtext format='3'><head><ws id='1' mh='2'/></head>"
@@ -61,12 +134,12 @@ public class CaptionInputReplayTest {
                                 + "<p t='1500' d='2000' w='1' a='1'>\n</p>"
                                 + "<p t='2000' d='4000' w='1'>two</p></body></timedtext>")
                         .getBytes("UTF-8");
-        boolean[] closed = {false};
+        int[] closeCalls = {0};
         InputStream original =
                 new ByteArrayInputStream(source) {
                     @Override
                     public void close() {
-                        closed[0] = true;
+                        closeCalls[0]++;
                     }
                 };
         Track track = new Track();
@@ -75,9 +148,11 @@ public class CaptionInputReplayTest {
         assertEquals(1, track.vssReads);
         InputStream repaired = TranslatedCaptionPensPatch.repairInput(original);
         assertEquals(2, CaptionXml.read(read(repaired)).getElementsByTagName("p").getLength());
-        assertFalse(closed[0]);
+        assertEquals(0, closeCalls[0]);
         repaired.close();
-        assertTrue(closed[0]);
+        assertEquals(1, closeCalls[0]);
+        repaired.close();
+        assertEquals(1, closeCalls[0]);
         // A non-caption request must clear the previous translated decoder state.
         TranslatedCaptionPensPatch.setParsedRequest(null);
         InputStream next = new ByteArrayInputStream(source);

@@ -8,6 +8,268 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
 
 public class CaptionSessionTest {
+    @Test public void evictionRemovesTextAndNativeRunsBeforeRetranslation() {
+        var calls = new AtomicInteger();
+        var blocks = new ArrayList<StableCaptionBlockPolicy.Block>();
+        for (int i = 0; i < 65; i++) {
+            String id = "group" + i, text = "source" + i, style = "style" + i + ":";
+            var plan = new NativeCaptionRunPlan(List.of(new NativeCaptionRunPlan.Group(
+                    id, List.of(text), null, (value, annotation) -> style + value)));
+            blocks.add(new StableCaptionBlockPolicy.Block(i * 40000L, i * 40000L + 1000,
+                    text, true, Map.of(i, text), Map.of(i, plan)));
+        }
+        CaptionTranslator provider = (from, to, texts) -> {
+            int version = calls.incrementAndGet();
+            return texts.stream().map(text -> "v" + version + ":" + text).toList();
+        };
+        var session = new CaptionSession(blocks, "en", "de", null, provider,
+                Runnable::run, () -> {}, () -> {});
+        for (int i = 0; i < 65; i++) session.demand(i * 40000L + 100);
+        assertEquals(65, calls.get());
+        var evicted = session.snapshot(100, true).windows.get(0);
+        assertEquals("", evicted.primary());
+        assertNull(evicted.primaryRuns());
+        session.demand(100);
+        var restored = session.snapshot(100, true).windows.get(0);
+        assertEquals("v66:source0", restored.primary());
+        assertEquals(List.of("style0:v66:source0"),
+                restored.primaryRuns().render(Set.of("group0")));
+        assertEquals(66, calls.get());
+    }
+
+    @Test public void scalarNativeWindowsBatchAndDeduplicateWithoutLosingTheirRenderers() {
+        var calls = new java.util.ArrayList<List<String>>();
+        var blocks = new java.util.ArrayList<StableCaptionBlockPolicy.Block>();
+        for (int i = 0; i < 3; i++) {
+            String text = i == 1 ? "two" : "one", id = "g" + i, style = "style" + i + ":";
+            var plan = new NativeCaptionRunPlan(List.of(new NativeCaptionRunPlan.Group(id, List.of(text), null,
+                    (value, annotation) -> style + value)));
+            blocks.add(new StableCaptionBlockPolicy.Block(i * 1000, (i + 1) * 1000, text, true,
+                    java.util.Map.of(i, text), java.util.Map.of(i, plan)));
+        }
+        CaptionTranslator provider = new CaptionTranslator() {
+            public List<String> translate(String from, String to, List<String> texts) {
+                calls.add(texts); return texts.stream().map(text -> "tr:" + text).toList();
+            }
+            public CaptionTranslator.StyledResult translateStyled(String from, String to,
+                    List<app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run> runs,
+                    java.util.function.BooleanSupplier active) {
+                throw new AssertionError("Single owned runs should share a provider batch");
+            }
+        };
+        var session = new CaptionSession(blocks, "en", "tr", null, provider,
+                Runnable::run, () -> {}, () -> {});
+        session.demand(100);
+        assertEquals(List.of(List.of("one", "two")), calls);
+        assertEquals(List.of("style0:tr:one"), session.snapshot(100).windows.get(0)
+                .primaryRuns().render(java.util.Set.of("g0")));
+        assertEquals(List.of("style2:tr:one"), session.snapshot(2100).windows.get(2)
+                .primaryRuns().render(java.util.Set.of("g2")));
+    }
+
+    @Test public void currentStyledWindowNotifiesBeforeFutureWindowTranslation() {
+        var notifications = new java.util.concurrent.atomic.AtomicInteger();
+        var blocks = new java.util.ArrayList<StableCaptionBlockPolicy.Block>();
+        for (int i = 0; i < 2; i++) {
+            String id = "w" + i;
+            var plan = new NativeCaptionRunPlan(List.of(
+                    new NativeCaptionRunPlan.Group(id + "a", List.of("one"), null, (text, annotation) -> text),
+                    new NativeCaptionRunPlan.Group(id + "b", List.of("two"), null, (text, annotation) -> text)));
+            blocks.add(new StableCaptionBlockPolicy.Block(i * 1000, (i + 1) * 1000, "onetwo", true,
+                    java.util.Map.of(i, "onetwo"), java.util.Map.of(i, plan)));
+        }
+        CaptionTranslator provider = new CaptionTranslator() {
+            public List<String> translate(String from, String to, List<String> texts) { return texts; }
+            public CaptionTranslator.StyledResult translateStyled(String from, String to,
+                    List<app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run> runs,
+                    java.util.function.BooleanSupplier active) {
+                if (runs.get(0).id().startsWith("w1")) assertTrue(notifications.get() > 0);
+                return new CaptionTranslator.StyledResult(runs.stream().map(run ->
+                        new CaptionTranslator.Part(run.id(), "translated:" + run.text())).toList());
+            }
+        };
+        var session = new CaptionSession(blocks, "en", "tr", null, provider,
+                Runnable::run, notifications::incrementAndGet, () -> {});
+        session.demand(100);
+        assertTrue(session.snapshot(100).complete);
+    }
+
+    @Test public void successfulStyledWindowSurvivesPlainNeighborFailure() {
+        var plan = new NativeCaptionRunPlan(List.of(new NativeCaptionRunPlan.Group("owned", List.of("good"),
+                null, (text, annotation) -> "native:" + text)));
+        var windows = new java.util.LinkedHashMap<Integer, String>();
+        windows.put(7, "good"); windows.put(8, "bad");
+        var block = new StableCaptionBlockPolicy.Block(0, 2000, "good bad", true,
+                windows, java.util.Map.of(7, plan));
+        CaptionTranslator provider = new CaptionTranslator() {
+            public List<String> translate(String from, String to, List<String> texts) throws java.io.IOException {
+                throw new CaptionTranslator.Failure("Unavailable", 0, false);
+            }
+            public CaptionTranslator.StyledResult translateStyled(String from, String to,
+                    List<app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run> runs,
+                    java.util.function.BooleanSupplier active) {
+                return new CaptionTranslator.StyledResult(List.of(new CaptionTranslator.Part("owned.0", "translated")));
+            }
+        };
+        var session = new CaptionSession(List.of(block), "en", "tr", "en", provider,
+                Runnable::run, () -> {}, () -> {});
+        session.demand(100);
+        assertEquals("translated", session.snapshot(100).windows.get(7).primary());
+        assertEquals(List.of("native:translated"), session.snapshot(100).windows.get(7)
+                .primaryRuns().render(java.util.Set.of("owned")));
+    }
+
+    @Test public void unmappedWindowCacheWaitsForSemanticTranslation() {
+        var plan = new NativeCaptionRunPlan(List.of(new NativeCaptionRunPlan.Group("owned", List.of("source"),
+                null, (text, annotation) -> "native:" + text)));
+        var block = new StableCaptionBlockPolicy.Block(0, 2000, "source", true,
+                java.util.Map.of(7, "source"), java.util.Map.of(7, plan));
+        CaptionTranslator provider = new CaptionTranslator() {
+            public List<String> translate(String from, String to, List<String> texts) { return texts; }
+            public String cached(String from, String to, String text) { return "unmapped cache"; }
+        };
+        var session = new CaptionSession(List.of(block), "en", "en", "tr", provider,
+                task -> {}, () -> {}, () -> {});
+        assertEquals("", session.snapshot(100).windows.get(7).secondary());
+        assertNull(session.snapshot(100).windows.get(7).secondaryRuns());
+    }
+
+    @Test public void failedStyledPrimaryRetainsAuthoredSourceRenderer() {
+        var plan = new NativeCaptionRunPlan(List.of(new NativeCaptionRunPlan.Group("owned", List.of("source"),
+                null, (text, annotation) -> "native:" + text)));
+        var block = new StableCaptionBlockPolicy.Block(0, 2000, "source", true,
+                java.util.Map.of(7, "source"), java.util.Map.of(7, plan));
+        CaptionTranslator provider = (from, to, texts) -> {
+            throw new CaptionTranslator.Failure("Unavailable", 0, false);
+        };
+        var session = new CaptionSession(List.of(block), "en", "tr", "de", provider,
+                Runnable::run, () -> {}, () -> {});
+        session.demand(100);
+        var snapshot = session.snapshot(100).windows.get(7);
+        assertEquals("source", snapshot.primary());
+        assertNotNull(snapshot.primaryRuns());
+        assertEquals(List.of("native:source"), snapshot.primaryRuns().render(java.util.Set.of("owned")));
+        assertEquals("", snapshot.secondary());
+    }
+
+    @Test public void failedStructuredWindowDoesNotDiscardItsNeighbor() {
+        var good = new NativeCaptionRunPlan(List.of(new NativeCaptionRunPlan.Group("good", List.of("good"),
+                null, (text, annotation) -> text)));
+        var bad = new NativeCaptionRunPlan(List.of(new NativeCaptionRunPlan.Group("bad", List.of("bad"),
+                null, (text, annotation) -> text)));
+        var block = new StableCaptionBlockPolicy.Block(0, 2000, "good bad", true,
+                java.util.Map.of(7, "good", 8, "bad"), java.util.Map.of(7, good, 8, bad));
+        CaptionTranslator provider = new CaptionTranslator() {
+            public List<String> translate(String from, String to, List<String> texts) throws java.io.IOException {
+                throw new java.io.IOException("offline");
+            }
+            public CaptionTranslator.StyledResult translateStyled(String from, String to,
+                    List<app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run> runs,
+                    java.util.function.BooleanSupplier active) {
+                return runs.get(0).id().equals("bad.0") ? null : new CaptionTranslator.StyledResult(
+                        List.of(new CaptionTranslator.Part("good.0", "translated")));
+            }
+        };
+        var session = new CaptionSession(List.of(block), "en", "en", "tr", provider,
+                Runnable::run, () -> {}, () -> {});
+        session.demand(100);
+        assertEquals("translated", session.snapshot(100).windows.get(7).secondary());
+        assertNotNull(session.snapshot(100).windows.get(7).secondaryRuns());
+        assertEquals("", session.snapshot(100).windows.get(8).secondary());
+        assertNull(session.snapshot(100).windows.get(8).secondaryRuns());
+        session.invalidate();
+        assertNull(session.snapshot(100));
+    }
+
+    @Test public void nativeWindowRequestsPreserveSemanticGroupsBeforePlainFallback() {
+        var plan = new NativeCaptionRunPlan(List.of(
+                new NativeCaptionRunPlan.Group("red", List.of("one"), null, (text, annotation) -> "red:" + text),
+                new NativeCaptionRunPlan.Group("blue", List.of("two"), null, (text, annotation) -> "blue:" + text)));
+        var block = new StableCaptionBlockPolicy.Block(0, 2000, "onetwo", true,
+                java.util.Map.of(7, "onetwo"), java.util.Map.of(7, plan));
+        var calls = new java.util.ArrayList<String>();
+        CaptionTranslator provider = new CaptionTranslator() {
+            public List<String> translate(String from, String to, List<String> texts) {
+                calls.add("plain"); return texts;
+            }
+            public CaptionTranslator.StyledResult translateStyled(String from, String to,
+                    List<app.morphe.extension.youtube.patches.captions.model.CaptionScene.Run> runs,
+                    java.util.function.BooleanSupplier active) {
+                calls.add("styled");
+                return new CaptionTranslator.StyledResult(List.of(new CaptionTranslator.Part("blue.0", "iki"),
+                        new CaptionTranslator.Part("red.0", "bir")));
+            }
+        };
+        var session = new CaptionSession(List.of(block), "en", "en", "tr", provider,
+                Runnable::run, () -> {}, () -> {});
+        session.demand(100);
+        assertEquals(List.of("styled"), calls);
+        assertEquals("ikibir", session.snapshot(100).windows.get(7).secondary());
+        assertNotNull(session.snapshot(100).windows.get(7).secondaryRuns());
+        assertEquals(List.of("blue:iki", "red:bir"), session.snapshot(100).windows.get(7)
+                .secondaryRuns().render(java.util.Set.of("red", "blue")));
+    }
+
+    @Test public void partialWindowResultDoesNotSuppressOtherWindowsOrLanguage() {
+        var source=List.of(new StableCaptionBlockPolicy.Block(0,2000,"legacy",true,Map.of(7,"A",8,"B")));
+        var session=new CaptionSession(source,"en","tr","de",(from,to,texts)->texts.stream()
+                .map(text->to.equals("tr")&&text.equals("B")?null:to+":"+text).toList(),
+                Runnable::run,()->{},()->{});
+        session.demand(0);var snapshot=session.snapshot(100,true);
+        assertEquals("tr:A",snapshot.windows.get(7).primary());
+        assertEquals("de:A",snapshot.windows.get(7).secondary());
+        assertEquals("de:B",snapshot.windows.get(8).secondary());
+        assertFalse(snapshot.complete);
+    }
+
+    @Test public void denseWindowSourceUsesBoundedProviderBatches() {
+        var windows=new LinkedHashMap<Integer,String>();
+        for(int i=0;i<80;i++) windows.put(i,"window"+i);
+        var source=List.of(new StableCaptionBlockPolicy.Block(0,2000,"legacy",true,windows));
+        var session=new CaptionSession(source,"en","tr",null,(from,to,texts)->{
+            assertTrue(texts.size()<=CaptionTranslator.MAX_BATCH_TEXTS);
+            return texts.stream().map(text->"tr:"+text).toList();
+        },Runnable::run,()->{},()->{});
+        session.demand(0);var snapshot=session.snapshot(100,true);
+        assertEquals(80,snapshot.windows.size());
+        assertEquals("tr:window79",snapshot.windows.get(79).primary());
+        assertTrue(snapshot.complete);
+    }
+    @Test public void nativeWindowCanReceiveItsTranslationBeforeItsOwnShortEnd() {
+        Jobs jobs=new Jobs();
+        var source=List.of(new StableCaptionBlockPolicy.Block(0,400,"legacy",true,Map.of(7,"Short")));
+        var session=new CaptionSession(source,"en","tr",null,(from,to,texts)->texts.stream().map(t->"tr:"+t).toList(),
+                jobs,()->{},()->{});
+        session.demand(0);assertEquals("",session.snapshot(0).primary);
+        jobs.run();assertEquals("tr:Short",session.snapshot(200).windows.get(7).primary());
+        assertNull(session.snapshot(400));
+    }
+    @Test public void nativeWindowsAreTranslatedIndividuallyAndKeepTheirIds() {
+        var source=List.of(new StableCaptionBlockPolicy.Block(0,2000,"combined legacy text",true,
+                new LinkedHashMap<>(Map.of(7,"First\nline",8,"Second"))));
+        List<String> requests=new ArrayList<>();
+        var session=new CaptionSession(source,"en","tr",null,(from,to,texts)->{
+            requests.addAll(texts);return texts.stream().map(text->to+":"+text).toList();
+        },Runnable::run,()->{},()->{});
+        session.demand(0);var snapshot=session.snapshot(100,true);
+        assertFalse(requests.contains("combined legacy text"));
+        assertEquals(Set.of(7,8),snapshot.windows.keySet());
+        assertEquals("tr:First\nline",snapshot.windows.get(7).primary());
+        assertEquals("tr:Second",snapshot.windows.get(8).primary());
+        assertThrows(UnsupportedOperationException.class,()->snapshot.windows.clear());
+    }
+
+    @Test public void endedNativeWindowDoesNotLeakIntoTheNextSnapshot() {
+        var source=List.of(new StableCaptionBlockPolicy.Block(0,1000,"first",true,Map.of(7,"A",8,"B")),
+                new StableCaptionBlockPolicy.Block(1000,2000,"next",true,Map.of(8,"B")));
+        var session=new CaptionSession(source,"en","tr","de",(from,to,texts)->texts.stream().map(text->to+":"+text).toList(),
+                Runnable::run,()->{},()->{});
+        session.demand(0);
+        assertEquals(Set.of(7,8),session.snapshot(100,true).windows.keySet());
+        assertEquals(Set.of(8),session.snapshot(1100,true).windows.keySet());
+        session.invalidate();assertNull(session.snapshot(100,true));
+    }
+
     private static final List<StableCaptionBlockPolicy.Block> SOURCE = List.of(
             new StableCaptionBlockPolicy.Block(0, 3000, "first source", true),
             new StableCaptionBlockPolicy.Block(4000, 7000, "second source", true),
@@ -32,7 +294,7 @@ public class CaptionSessionTest {
 
     @Test public void warmTranslationsRemainVisibleWhileReplacementWorkerIsQueued() {
         Jobs jobs = new Jobs();
-        CaptionSession.Translator cached = new CaptionSession.Translator() {
+        CaptionTranslator cached = new CaptionTranslator() {
             public List<String> translate(String from, String to, List<String> texts) {
                 fail("Snapshot must not start network work");
                 return null;
@@ -100,15 +362,20 @@ public class CaptionSessionTest {
         }
     }
 
-    @Test public void oversizedNativeCueIsNotSentToProvider() {
+    @Test public void oversizedNativeCueIsSplitWithoutSkippingTranslation() {
         String text = "😀".repeat(StableCaptionBlockPolicy.MAX_BLOCK_CHARS + 1);
+        List<String> sent = new ArrayList<>();
         var session = new CaptionSession(List.of(new StableCaptionBlockPolicy.Block(0, 3000, text, false)),
                 "en", "de", "fr", (from, to, texts) -> {
-                    fail("Provider input limit must be enforced independently of layout hints");
-                    return null;
-                }, Runnable::run, () -> {}, () -> {});
+                    sent.addAll(texts);
+                    for (String value : texts) assertTrue(value.codePointCount(0, value.length()) <= 512);
+                    return texts;
+                }, Runnable::run, () -> {}, () -> fail("Long cue must not be skipped"));
         session.demand(0);
-        assertFalse(session.snapshot(100).complete);
+        assertTrue(session.snapshot(100).complete);
+        assertEquals(text, session.snapshot(100).primary);
+        assertEquals(text, session.snapshot(100).secondary);
+        assertEquals(4, sent.size());
     }
 
     @Test public void outputsUseOneSourceClockAndOneBoundedDemand() {
@@ -237,6 +504,73 @@ public class CaptionSessionTest {
         assertEquals("tr:first source", holder[0].snapshot(100).secondary);
     }
 
+    @Test public void seekDuringPrimaryPrioritizesNewCueBeforeObsoleteSecondary() {
+        Jobs jobs = new Jobs();
+        List<String> requests = new ArrayList<>();
+        CaptionSession[] holder = new CaptionSession[1];
+        holder[0] = new CaptionSession(SOURCE, "en", "de", "tr", (from, to, texts) -> {
+            requests.add(to + ":" + String.join(",", texts));
+            if (requests.size() == 1) holder[0].demand(31000);
+            return texts.stream().map(text -> to + ":" + text).toList();
+        }, jobs, () -> {}, () -> {});
+        holder[0].demand(0);
+        jobs.run();
+
+        assertEquals(List.of("de:first source,second source", "de:far source", "tr:far source"), requests);
+        assertEquals("de:far source", holder[0].snapshot(31000).primary);
+        assertEquals("tr:far source", holder[0].snapshot(31000).secondary);
+    }
+
+    @Test public void backwardSeekDuringFailurePreservesProviderRetryAfter() {
+        Jobs jobs = new Jobs();
+        long[] now = {0};
+        AtomicInteger calls = new AtomicInteger();
+        CaptionSession[] holder = new CaptionSession[1];
+        var source = List.of(new StableCaptionBlockPolicy.Block(0, 10000, "source", true));
+        holder[0] = new CaptionSession(source, "en", "de", null, (from, to, texts) -> {
+            if (calls.incrementAndGet() == 1) {
+                holder[0].demand(100);
+                throw new CaptionTranslator.Failure("limited", 60000, true);
+            }
+            return List.of("translated");
+        }, jobs, () -> {}, () -> {}, () -> now[0]);
+
+        holder[0].demand(2000);
+        jobs.run();
+        assertEquals("A seek must not discard the in-flight provider cooldown", 1, calls.get());
+        now[0] = 59999;
+        holder[0].demand(200);
+        jobs.run();
+        assertEquals(1, calls.get());
+        now[0] = 60000;
+        holder[0].demand(300);
+        jobs.run();
+        assertEquals(2, calls.get());
+        assertEquals("translated", holder[0].snapshot(300).primary);
+    }
+
+    @Test public void seekDuringTerminalPrimaryFailureStillRequestsUnattemptedSecondary() {
+        Jobs jobs = new Jobs();
+        List<String> targets = new ArrayList<>();
+        CaptionSession[] holder = new CaptionSession[1];
+        var source = List.of(new StableCaptionBlockPolicy.Block(0, 10000, "source", true));
+        holder[0] = new CaptionSession(source, "en", "de", "tr", (from, to, texts) -> {
+            targets.add(to);
+            if (to.equals("de")) {
+                holder[0].demand(100);
+                throw new CaptionTranslator.Failure("unsupported", 0, false);
+            }
+            return List.of("translated secondary");
+        }, jobs, () -> {}, () -> {});
+
+        holder[0].demand(2000);
+        jobs.run();
+
+        assertEquals(List.of("de", "tr"), targets);
+        assertEquals("source", holder[0].snapshot(100).primary);
+        assertEquals("translated secondary", holder[0].snapshot(100).secondary);
+    }
+
     @Test public void transientRetryIsBoundedAndKeepsSuccessfulLanguage() {
         Jobs jobs = new Jobs(); long[] now = {0}; AtomicInteger first = new AtomicInteger(), second = new AtomicInteger();
         var session = new CaptionSession(SOURCE, "en", "de", "tr", (f,t,texts) -> {
@@ -254,7 +588,7 @@ public class CaptionSessionTest {
     @Test public void retryHonorsProviderDelayAndRecoversWithoutSeek() {
         Jobs jobs = new Jobs(); long[] now = {0}; AtomicInteger calls = new AtomicInteger();
         var session = new CaptionSession(SOURCE, "en", "de", null, (f,t,texts) -> {
-            if (calls.incrementAndGet() == 1) throw new CaptionBlockTranslator.Failure("limited", 60000, true);
+            if (calls.incrementAndGet() == 1) throw new CaptionTranslator.Failure("limited", 60000, true);
             return texts.stream().map(x -> "de:" + x).toList();
         }, jobs, () -> {}, () -> {}, () -> now[0]);
         session.demand(0); jobs.run(); now[0] = 59999; session.demand(100); jobs.run(); assertEquals(1, calls.get());
@@ -282,7 +616,7 @@ public class CaptionSessionTest {
         var session = new CaptionSession(SOURCE, "en", "de", "tr", (f,t,texts) -> {
             if (!t.equals("de")) throw new IOException("secondary unavailable");
             if (calls.incrementAndGet() == 1) return Arrays.asList("eins", null);
-            throw new CaptionBlockTranslator.Failure("unsupported", 0, false);
+            throw new CaptionTranslator.Failure("unsupported", 0, false);
         }, jobs, () -> {}, () -> {}, () -> now[0]);
         session.demand(0); jobs.run(); now[0] = 1000; session.demand(100); jobs.run();
         assertEquals("eins", session.snapshot(200).primary);
@@ -315,7 +649,7 @@ public class CaptionSessionTest {
 
     @Test public void bothUploadedOutputsDoNotQueueOrReadTranslations() {
         Jobs jobs = new Jobs();
-        CaptionSession.Translator translator = new CaptionSession.Translator() {
+        CaptionTranslator translator = new CaptionTranslator() {
             public List<String> translate(String from, String to, List<String> texts) {
                 throw new AssertionError("Both outputs are uploaded");
             }
@@ -343,7 +677,7 @@ public class CaptionSessionTest {
 
     @Test public void replacementAfterUploadFailureRequestsTheFormerlyOwnedSlot() {
         Jobs jobs = new Jobs(); List<String> targets = new ArrayList<>();
-        CaptionSession.Translator translator = (from, to, texts) -> {
+        CaptionTranslator translator = (from, to, texts) -> {
             targets.add(to); return texts.stream().map(text -> to + ":" + text).toList();
         };
         var old = new CaptionSession(SOURCE, "en", "tr", "de", translator,

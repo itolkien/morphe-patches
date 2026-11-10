@@ -1853,4 +1853,10 @@ Otomatik kayıt özelliği isteğe bağlıdır; gizli modda veya hesap değişti
   <string name="morphe_live_chat_translate_max_length_title">Maksimum mesaj uzunluğu</string>
   <string name="morphe_live_chat_translate_max_length_summary">Daha uzun mesajlar çevrilmeden gösterilir</string>
   <string name="morphe_live_chat_translate_max_length_no_limit">Limitsiz</string>
+    <string name="morphe_caption_appearance_title">Altyazı görünümü</string>
+    <string name="morphe_caption_appearance_summary">Konum, genişlik ve boyutu canlı önizlemeyle ayarlayın</string>
+    <string name="morphe_caption_position_label">Konum</string>
+    <string name="morphe_caption_width_label">Genişlik</string>
+    <string name="morphe_caption_size_label">Boyut</string>
+    <string name="morphe_caption_preview_text">Oynatıcı içinde satırlara ayrılan altyazı önizlemesi</string>
 </resources>

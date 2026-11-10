@@ -15,8 +15,41 @@ import java.util.Map;
 final class CaptionViewportPolicy {
     private static final int DEFAULT_SCALE_PERCENTAGE = 100;
 
+    /** Caption window width limit, never wider than the player and never below 40%. */
+    static int captionWidth(int size, int percentage) {
+        if (size <= 0) return size;
+        final int percent = Math.max(40, Math.min(100, percentage));
+        return percent >= 100 ? size : Math.max(1, Math.round(size * percent / 100f));
+    }
+
     static float scaleFontSize(float size, int percentage) {
-        return percentage == DEFAULT_SCALE_PERCENTAGE ? size : size * percentage / DEFAULT_SCALE_PERCENTAGE;
+        return percentage == DEFAULT_SCALE_PERCENTAGE
+                ? size
+                : size * percentage / DEFAULT_SCALE_PERCENTAGE;
+    }
+
+    /** PiP must not inherit the native 13sp minimum intended for the full player. */
+    static float pipFontSize(float size, int width, int height) {
+        return width <= 0 || height <= 0 ? size : Math.min(size, Math.min(width, height) * 0.0625f);
+    }
+
+    /** Position slider range: 0 = native bottom, 100 = highest safe position. */
+    static int positionPercent(int value) {
+        return Math.max(0, Math.min(100, value));
+    }
+
+    /**
+     * Shared vertical translation for one caption group. The same delta is added to every native
+     * window, so layered and bilingual windows keep their relative positions.
+     *
+     * @param groupTop Top of the group in parent coordinates before our translation.
+     * @param safeTop  Highest parent coordinate the group top may occupy.
+     * @return Translation to add to every group member; zero in PiP or when there is no room.
+     */
+    static float positionOffset(int positionPercent, float groupTop, float safeTop, boolean pip) {
+        if (pip) return 0f;
+        float available = Math.max(0f, groupTop - safeTop);
+        return -Math.max(0, Math.min(100, positionPercent)) / 100f * available;
     }
 
     private final LinkedHashMap<String, Double> aspects = new LinkedHashMap<>(32, 0.75f, true);
@@ -47,14 +80,24 @@ final class CaptionViewportPolicy {
         }
     }
 
-    synchronized int height(int width, int height, boolean fullscreenFit, boolean landscapeTransition) {
+    synchronized int height(
+            int width, int height, boolean fullscreenFit, boolean landscapeTransition) {
         if (!fullscreenFit || width <= 0 || height <= 0 || selected == null) return height;
         // Animated bounds cross the stable portrait/near-square guards. The target
         // configuration, rather than one intermediate frame, identifies landscape.
         if (!landscapeTransition && (width < height || 4L * height < 3L * width)) return height;
         Double aspect = aspects.get(selected);
         if (aspect == null) return height;
-        return (int) Math.min(height, Math.max(1L, Math.round(width / aspect)));
+        return fittedHeight(width, height, aspect);
     }
 
+    /** Top edge of the caption overlay, in parent coordinates, below system insets. */
+    static float safeTop(int parentHeight, int inset, int windowY, float margin) {
+        final float visibleTop = Math.max(0, inset - windowY);
+        return Math.max(0, Math.min(parentHeight, visibleTop + margin));
+    }
+
+    private static int fittedHeight(int width, int height, double aspect) {
+        return (int) Math.min(height, Math.max(1L, Math.round(width / aspect)));
+    }
 }

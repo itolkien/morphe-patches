@@ -26,7 +26,7 @@ public class UploadedCaptionTracksTest {
         var videoField = CaptionTracks.class.getDeclaredField("video");
         videoField.setAccessible(true);
         Object oldVideo = videoField.get(null);
-        var sessionField = CaptionTracks.class.getDeclaredField("translatedSession");
+        var sessionField = CaptionTracks.class.getDeclaredField("activeTranslation");
         sessionField.setAccessible(true);
         Object oldSession = sessionField.get(null);
         ThreadLocal<Object> parsing = (ThreadLocal<Object>) parsingField.get(null);

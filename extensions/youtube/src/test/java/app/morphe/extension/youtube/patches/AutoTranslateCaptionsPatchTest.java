@@ -22,6 +22,19 @@ import java.util.Locale;
 import app.morphe.extension.youtube.patches.AutoTranslateCaptionsPatch.CaptionTrackInterface;
 
 public class AutoTranslateCaptionsPatchTest {
+    @Test public void invalidTrackIdentityDoesNotReadAnUnavailableUrlGetter() {
+        CaptionTrackInterface invalid = new CaptionTrackInterface() {
+            public String patch_getLanguageCode() { return null; }
+            public String patch_getVssId() { return "not-a-translation"; }
+            public String patch_getUrl() { throw new NoSuchMethodError("URL getter unavailable"); }
+            public CaptionTrackInterface patch_copyTranslation(String code, String url, String vss, CharSequence label) {
+                throw new AssertionError("Invalid source must not create translated tracks");
+            }
+        };
+        List<CaptionTrackInterface> original = List.of(invalid);
+        assertSame(original, add(original, Locale.ENGLISH));
+    }
+
     private static final String URL = "https://www.youtube.com/api/timedtext?v=video&lang=en&sig=a%2Bb";
 
     private static final class Track implements CaptionTrackInterface {

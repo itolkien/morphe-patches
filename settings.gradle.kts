@@ -62,3 +62,5 @@ file("../morphe-patches-library").let { libDir ->
         }
     }
 }
+include(":vertical-text")
+project(":vertical-text").projectDir = file("libraries/vertical-text")

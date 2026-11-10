@@ -36,12 +36,11 @@ internal val captionViewportPatch = patch(
 
         settingsMenuCaptionGroup.add(
             NonInteractivePreference(
-                "morphe_caption_scale",
-                tag = "app.morphe.extension.shared.settings.preference.SeekBarPreference",
+                "morphe_caption_appearance",
+                tag = "app.morphe.extension.youtube.settings.preference.CaptionAppearancePreference",
                 selectable = true
             )
         )
-
         // Font size is calculated from the overlay size. Use the height of the fitted video instead.
         CaptionFontSizeFingerprint.method.addInstructions(
             0,
@@ -52,7 +51,7 @@ internal val captionViewportPatch = patch(
         )
 
         // All native font paths end at this setter, including overrides of the base formula.
-        CaptionWindowFontSizeFingerprint.method.addInstructions(
+        CaptionWindowFontSizeFingerprint().method.addInstructions(
             0,
             """
                 invoke-static/range { p1 .. p1 }, $EXTENSION_CLASS->scaleFontSize(F)F

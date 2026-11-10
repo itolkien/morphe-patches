@@ -194,6 +194,13 @@ public final class VideoInformation {
     }
 
     /**
+     * @return If the Shorts player is open and in front, so its short is the current video.
+     */
+    public static boolean isCurrentPlayerShorts() {
+        return ShortsPlayerState.isOpen() && !PlayerType.getCurrent().isMaximizedOrFullscreen();
+    }
+
+    /**
      * A regular video opened from a Short starts before the regular player is maximized,
      * so a video started while the Shorts player is open is assigned to its player
      * once the information of the video is set.

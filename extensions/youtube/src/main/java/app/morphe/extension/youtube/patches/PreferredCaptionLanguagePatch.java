@@ -14,13 +14,14 @@ import android.os.SystemClock;
 
 import androidx.annotation.Nullable;
 
-import java.util.List;
 import java.lang.ref.WeakReference;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import app.morphe.extension.shared.Logger;
+import app.morphe.extension.shared.Utils;
 import app.morphe.extension.shared.requests.Requester;
 import app.morphe.extension.youtube.settings.Settings;
 
@@ -104,6 +105,7 @@ public class PreferredCaptionLanguagePatch {
     private static final AtomicBoolean userSelectedTrack = new AtomicBoolean(false);
     private static final AtomicLong userInteractionAllowedAt = new AtomicLong(Long.MAX_VALUE);
     private static volatile long videoStartTime;
+    private static volatile long userVisibilitySelectionAt;
     private static volatile WeakReference<SubtitleManagerInterface> activeManager = new WeakReference<>(null);
     private static volatile CaptionTrackInterface activeTrack;
     private static volatile String managerVideo;
@@ -120,6 +122,13 @@ public class PreferredCaptionLanguagePatch {
     public static CaptionTrackInterface getPreferredCaptionTrack(
             SubtitleManagerInterface subtitleManager, @Nullable CaptionTrackInterface originalTrack) {
         CaptionTrackInterface selected = choosePreferredCaptionTrack(subtitleManager, originalTrack);
+        if (CaptionTracks.nativeStyledOutputsEnabled()) {
+            CaptionTrackInterface source = sourceForStyledTranslation(subtitleManager, selected);
+            if (source instanceof AutoTranslateCaptionsPatch.CaptionTrackInterface original
+                    && CaptionTracks.requestOutput(original, selected.patch_getLanguageCode())) {
+                selected = recordProgrammaticSelection(source);
+            }
+        }
         rememberSelection(subtitleManager, selected);
         return selected;
     }
@@ -249,15 +258,17 @@ public class PreferredCaptionLanguagePatch {
             final boolean userSelection = interactionAllowed && selectType != null
                     && PREFERRED_TRACK_SELECT_TYPE.equals(selectType.name())
                     && SystemClock.uptimeMillis() - videoStartTime > USER_SELECTION_GRACE_PERIOD_MILLISECONDS;
-            if (userSelection && CaptionTracks.dualCaptionEnabled()
+            if (userSelection && (CaptionTracks.dualCaptionEnabled() || CaptionTracks.nativeStyledOutputsEnabled())
                     && track instanceof AutoTranslateCaptionsPatch.CaptionTrackInterface original
                     && CaptionTracks.sourceIdentity(original) != null) userSelectedTrack.set(true);
             rememberSelection(subtitleManager, track);
-            if (CaptionTracks.dualCaptionEnabled()
+            if ((CaptionTracks.dualCaptionEnabled() || CaptionTracks.nativeStyledOutputsEnabled())
                     && track instanceof AutoTranslateCaptionsPatch.CaptionTrackInterface translated
                     && AutoTranslateCaptionsPatch.isTranslationTrack(translated)) {
                 if (userSelection) userSelectedTrack.set(true);
-                CaptionTrackInterface source = blockTranslationSource(subtitleManager, track);
+                CaptionTrackInterface source = CaptionTracks.dualCaptionEnabled()
+                        ? blockTranslationSource(subtitleManager, track)
+                        : sourceForStyledTranslation(subtitleManager, track);
                 if (source instanceof AutoTranslateCaptionsPatch.CaptionTrackInterface original
                         && CaptionTracks.requestOutput(original, translated.patch_getLanguageCode())) {
                     return source;
@@ -327,6 +338,30 @@ public class PreferredCaptionLanguagePatch {
     }
 
     /**
+     * Injection point: SubtitleManager visibility setter, at method entry.
+     * The CC button uses this path for both turning captions on and off.
+     */
+    public static void onCaptionVisibilityChanged(boolean visible) {
+        try {
+            final long selectionAge = SystemClock.uptimeMillis() - userVisibilitySelectionAt;
+            if (selectionAge >= 0 && selectionAge < 2500
+                    && !Boolean.TRUE.equals(replayingSelection.get())) {
+                AutoCaptionsPatch.rememberVisibility(visible);
+                userVisibilitySelectionAt = 0;
+            }
+        } catch (Exception ex) {
+            Logger.printException(() -> "onCaptionVisibilityChanged failure", ex);
+        }
+    }
+
+    /**
+     * Injection point: the native captions menu/CC selection method.
+     */
+    public static void onCaptionUserSelected() {
+        userVisibilitySelectionAt = SystemClock.uptimeMillis();
+    }
+
+    /**
      * Injection point: Video information loaded hook.
      */
     public static void videoInformationLoaded() {
@@ -360,6 +395,21 @@ public class PreferredCaptionLanguagePatch {
         }
     }
 
+    /**
+     * Resolves the video language after the native handler commits a track selection.
+     * The first subtitle selection can happen before a usable source track is known.
+     */
+    static void refreshVideoLanguage(@Nullable CaptionTrackInterface selected) {
+        SubtitleManagerInterface manager = activeManager.get();
+        if (manager == null || selected == null) return;
+
+        try {
+            CaptionTracks.inspectUploadedTracks(manager, selected);
+        } catch (Exception ex) {
+            Logger.printException(() -> "refreshVideoLanguage failure", ex);
+        }
+    }
+
     static void forgetSelectionForVideo(@Nullable String id) {
         if (managerVideo != null && managerVideo.equals(id)) return;
         activeManager.clear();
@@ -387,6 +437,61 @@ public class PreferredCaptionLanguagePatch {
         }
     }
 
+    static boolean hasActiveSelection() {
+        return activeManager.get() != null && activeTrack != null;
+    }
+
+    /**
+     * Forces the native caption load path. Selecting the same track again can be a no-op
+     * when the first load came from the native cache, so briefly select another original track.
+     */
+    static void replayCaptionSelection() {
+        SubtitleManagerInterface manager = activeManager.get();
+        CaptionTrackInterface track = activeTrack;
+        if (manager == null || track == null) return;
+
+        CaptionTrackInterface selected = getPreferredCaptionTrack(manager, CaptionTracks.primaryTrack(track));
+        if (selected == null) return;
+
+        CaptionTrackInterface alternate = null;
+        try {
+            List<CaptionTrackInterface> direct = manager.patch_getDirectCaptionTracks();
+            if (direct != null) {
+                for (CaptionTrackInterface candidate : direct) {
+                    if (!(candidate instanceof AutoTranslateCaptionsPatch.CaptionTrackInterface input)
+                            || isExplicitlyDisabled(candidate)
+                            || AutoTranslateCaptionsPatch.isTranslationTrack(input)
+                            || candidate.patch_getVssId().equals(selected.patch_getVssId())) continue;
+                    alternate = candidate;
+                    break;
+                }
+            }
+        } catch (RuntimeException | LinkageError unavailable) {
+            // Fall back to selecting the requested track directly.
+        }
+
+        final CaptionTrackInterface other = alternate;
+        if (other == null) {
+            manager.patch_selectCaptionTrack(selected);
+            return;
+        }
+
+        userSelectedTrack.set(true);
+        try {
+            manager.patch_selectCaptionTrack(other);
+        } finally {
+            userSelectedTrack.set(false);
+        }
+        Utils.runOnMainThreadDelayed(() -> {
+            userSelectedTrack.set(true);
+            try {
+                manager.patch_selectCaptionTrack(selected);
+            } finally {
+                userSelectedTrack.set(false);
+            }
+        }, 250);
+    }
+
     static boolean hasUserSelectedTrack() {
         return userSelectedTrack.get();
     }
@@ -403,6 +508,22 @@ public class PreferredCaptionLanguagePatch {
         return getLanguageKey(target == null ? actualLanguage : target);
     }
 
+    @Nullable
+    static CaptionTrackInterface sourceForStyledTranslation(SubtitleManagerInterface manager,
+            CaptionTrackInterface translated) {
+        try {
+            if (!(translated instanceof AutoTranslateCaptionsPatch.CaptionTrackInterface input)
+                    || !AutoTranslateCaptionsPatch.isTranslationTrack(input)) return null;
+            CaptionTrackInterface source = blockTranslationSource(manager, translated);
+            return source instanceof AutoTranslateCaptionsPatch.CaptionTrackInterface original
+                    && original.patch_getVssId().startsWith(".")
+                    && !AutoTranslateCaptionsPatch.isTranslationTrack(original)
+                    && CaptionTracks.sourceIdentity(original) != null ? source : null;
+        } catch (RuntimeException | LinkageError unavailable) {
+            return null;
+        }
+    }
+
     /** Preserve a selected original; otherwise use the active audio's default caption. */
     @Nullable
     static CaptionTrackInterface blockTranslationSource(SubtitleManagerInterface manager,
@@ -412,15 +533,22 @@ public class PreferredCaptionLanguagePatch {
             String identity = CaptionTracks.sourceIdentity(input);
             List<CaptionTrackInterface> direct = manager.patch_getDirectCaptionTracks();
             if (identity == null || direct == null) return null;
-            for (CaptionTrackInterface candidate : direct)
-                if (candidate instanceof AutoTranslateCaptionsPatch.CaptionTrackInterface original
-                        && identity.equals(CaptionTracks.sourceIdentity(original))
-                        && !AutoTranslateCaptionsPatch.isTranslationTrack(original))
-                    return candidate;
-            return null;
+            // Native urls can differ by signed or transport fields the identity already covers.
+            return findSource(direct, identity);
         }
         return AutoTranslateCaptionsPatch.findFallbackSource(manager.patch_getDirectCaptionTracks(),
                 manager.patch_getCurrentAudioCaptionSource());
+    }
+
+    @Nullable
+    private static CaptionTrackInterface findSource(List<CaptionTrackInterface> direct,
+            String identity) {
+        for (CaptionTrackInterface candidate : direct) {
+            if (candidate instanceof AutoTranslateCaptionsPatch.CaptionTrackInterface original
+                    && !AutoTranslateCaptionsPatch.isTranslationTrack(original)
+                    && identity.equals(CaptionTracks.sourceIdentity(original))) return candidate;
+        }
+        return null;
     }
 
     private static String getAppLanguage() {

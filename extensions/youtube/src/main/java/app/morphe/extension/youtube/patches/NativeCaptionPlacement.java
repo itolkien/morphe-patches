@@ -24,7 +24,6 @@ final class NativeCaptionPlacement {
         boolean overlaps(Bounds other) {
             return left < other.right && right > other.left && top < other.bottom && bottom > other.top;
         }
-        Bounds shifted(int dy) { return new Bounds(left, top + dy, right, bottom + dy); }
         Bounds scaled(float factor) {
             int width = Math.round((right - left) * factor), height = Math.round((bottom - top) * factor);
             int x = left + (right - left - width) / 2, y = top + (bottom - top - height) / 2;
@@ -37,7 +36,6 @@ final class NativeCaptionPlacement {
     static void afterLayout(ViewGroup parent) {
         List<Bounds> primary = new ArrayList<>(), secondary = new ArrayList<>();
         List<View> firstViews = new ArrayList<>(), views = new ArrayList<>();
-        View translation = null;
         int primaryTranslation = -1, secondaryTranslation = -1;
         for (int i = 0; i < parent.getChildCount(); i++) {
             View child = parent.getChildAt(i);
@@ -56,7 +54,6 @@ final class NativeCaptionPlacement {
             if (frame == null || frame.state.nativePair == null
                     || !frame.nativeStyle && !DualCaptionOverlay.hasText(view)) continue;
             Bounds bounds = new Bounds(view.getLeft(), view.getTop(), view.getRight(), view.getBottom());
-            if (!frame.nativeStyle) translation = view;
             if (frame.secondaryNativeCaption()) {
                 if (!frame.nativeStyle) secondaryTranslation = secondary.size();
                 secondary.add(bounds);
@@ -70,13 +67,16 @@ final class NativeCaptionPlacement {
         Placement placement = fit(primary, secondary, primaryTranslation, secondaryTranslation,
                 parent.getPaddingTop(), parent.getHeight() - parent.getPaddingBottom(),
                 Math.max(1, Math.round(2 * parent.getResources().getDisplayMetrics().density)));
-        if (translation != null) {
-            if (placement.scale < 1) {
-                Scale original = new Scale(translation.getScaleX(), translation.getScaleY());
-                compacted.put(translation, original);
-                translation.setScaleX(original.x * placement.scale);
-                translation.setScaleY(original.y * placement.scale);
-            }
+        // fit() chooses the first translation (primary, then secondary); scale that same view.
+        View scaleTarget =
+                primaryTranslation >= 0
+                        ? firstViews.get(primaryTranslation)
+                        : secondaryTranslation >= 0 ? views.get(secondaryTranslation) : null;
+        if (scaleTarget != null && placement.scale < 1) {
+            Scale original = new Scale(scaleTarget.getScaleX(), scaleTarget.getScaleY());
+            compacted.put(scaleTarget, original);
+            scaleTarget.setScaleX(original.x * placement.scale);
+            scaleTarget.setScaleY(original.y * placement.scale);
         }
         for (int i = 0; i < firstViews.size(); i++) firstViews.get(i).offsetTopAndBottom(placement.primaryOffsets[i]);
         for (int i = 0; i < views.size(); i++) views.get(i).offsetTopAndBottom(placement.offsets[i]);

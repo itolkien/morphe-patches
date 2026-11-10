@@ -21,7 +21,7 @@ internal val captionWindowMeasurePatch = patch(
     description = "Fixes the caption window height using the width measure mode.",
 ) {
     execute {
-        CaptionWindowMeasureFingerprint.let {
+        CaptionWindowMeasureFingerprint().let {
             val heightModeRegister = it.instructionMatches[4]
                 .getInstruction<OneRegisterInstruction>().registerA
             val branchIndex = it.instructionMatches.last().index

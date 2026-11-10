@@ -1,6 +1,6 @@
 package app.morphe.patches.youtube.layout.captions
 
-import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
+import app.morphe.patcher.extensions.InstructionExtensions.replaceInstruction
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructionsWithLabels
 import app.morphe.patcher.extensions.InstructionExtensions.getInstruction
 import app.morphe.patcher.patch.patch
@@ -14,7 +14,6 @@ import app.morphe.patches.youtube.misc.settings.settingsPatch
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
-import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter
 
@@ -47,43 +46,44 @@ internal val captionCookiesPatch = patch(
             it.method.apply {
                 val helperMethod = ImmutableMethod(
                     definingClass,
-                    "patch_setUrlRequestHeaders",
+                    "patch_newCaptionUrlRequestBuilder",
                     listOf(
-                        ImmutableMethodParameter(
-                            $$"Lorg/chromium/net/UrlRequest$Builder;",
-                            null,
-                            null
-                        )
-                    ),
-                    "V",
-                    AccessFlags.PRIVATE.value or AccessFlags.FINAL.value,
+                        "Lorg/chromium/net/CronetEngine;",
+                        "Ljava/lang/String;",
+                        $$"Lorg/chromium/net/UrlRequest$Callback;",
+                        "Ljava/util/concurrent/Executor;"
+                    ).map { ImmutableMethodParameter(it, null, null) },
+                    $$"Lorg/chromium/net/UrlRequest$Builder;",
+                    AccessFlags.PRIVATE.value or AccessFlags.STATIC.value,
                     null,
                     null,
-                    MutableMethodImplementation(4),
+                    MutableMethodImplementation(7),
                 ).toMutable().apply {
                     addInstructionsWithLabels(
                         0,
                         $$"""
-                            invoke-static { }, $$EXTENSION_CLASS->getRequireCookies()Z
-                            move-result v0
-                            if-eqz v0, :disabled
+                            invoke-virtual { p0, p1, p2, p3 }, Lorg/chromium/net/CronetEngine;->newUrlRequestBuilder(Ljava/lang/String;Lorg/chromium/net/UrlRequest$Callback;Ljava/util/concurrent/Executor;)Lorg/chromium/net/UrlRequest$Builder;
+                            move-result-object v0
+                            invoke-static { p1 }, $$EXTENSION_CLASS->shouldSetCookies(Ljava/lang/String;)Z
+                            move-result v1
+                            if-eqz v1, :disabled
                             
                             # Set Cookie.
-                            const-string v0, "Cookie"
+                            const-string v1, "Cookie"
                             invoke-static { }, $$EXTENSION_CLASS->getCookies()Ljava/lang/String;
-                            move-result-object v1
-                            invoke-virtual { p1, v0, v1 }, Lorg/chromium/net/UrlRequest$Builder;->addHeader(Ljava/lang/String;Ljava/lang/String;)Lorg/chromium/net/UrlRequest$Builder;
+                            move-result-object v2
+                            invoke-virtual { v0, v1, v2 }, Lorg/chromium/net/UrlRequest$Builder;->addHeader(Ljava/lang/String;Ljava/lang/String;)Lorg/chromium/net/UrlRequest$Builder;
 
                             # Set User-Agent.
-                            const-string v0, "User-Agent"
+                            const-string v1, "User-Agent"
                             invoke-static { }, $$EXTENSION_CLASS->getUserAgent()Ljava/lang/String;
-                            move-result-object v1
+                            move-result-object v2
 
                             # Set Header.
-                            invoke-virtual { p1, v0, v1 }, Lorg/chromium/net/UrlRequest$Builder;->addHeader(Ljava/lang/String;Ljava/lang/String;)Lorg/chromium/net/UrlRequest$Builder;
+                            invoke-virtual { v0, v1, v2 }, Lorg/chromium/net/UrlRequest$Builder;->addHeader(Ljava/lang/String;Ljava/lang/String;)Lorg/chromium/net/UrlRequest$Builder;
 
                             :disabled
-                            return-void
+                            return-object v0
                         """,
                     )
                 }
@@ -91,20 +91,13 @@ internal val captionCookiesPatch = patch(
                 it.classDef.methods.add(helperMethod)
 
                 val urlIndex = it.instructionMatches[0].index
-                val urlRegister =
-                    getInstruction<FiveRegisterInstruction>(urlIndex).registerD
-                val buildIndex = it.instructionMatches[1].index
-                val buildRegister =
-                    getInstruction<OneRegisterInstruction>(buildIndex).registerA
-
-                addInstruction(
-                    buildIndex + 1,
-                    "invoke-direct { p0, v$buildRegister }, $helperMethod"
-                )
-
-                addInstruction(
+                val call = getInstruction<FiveRegisterInstruction>(urlIndex)
+                check(call.registerCount == 4)
+                // Wrap the factory call itself: its URL may share the move-result register.
+                // No original register is extended, shifted or reused across that write.
+                replaceInstruction(
                     urlIndex,
-                    "invoke-static { v$urlRegister }, $EXTENSION_CLASS->setRequireCookies(Ljava/lang/String;)V"
+                    "invoke-static { v${call.registerC}, v${call.registerD}, v${call.registerE}, v${call.registerF} }, $helperMethod"
                 )
             }
         }

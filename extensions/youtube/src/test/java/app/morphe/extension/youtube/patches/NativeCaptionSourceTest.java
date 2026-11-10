@@ -13,10 +13,12 @@ import java.util.Collections;
 import static org.junit.Assert.*;
 
 public class NativeCaptionSourceTest {
-    record Cue(String visible, String full, boolean shown) implements StableCaptionBlocks.Cue {
-        Cue(String visible, String full) { this(visible, full, true); }
+    record Cue(String visible, String full, boolean shown, int id) implements StableCaptionBlocks.Cue {
+        Cue(String visible, String full) { this(visible, full, true, 0); }
+        Cue(String visible, String full, boolean shown) { this(visible, full, shown, 0); }
+        Cue(int id, String visible, String full) { this(visible, full, true, id); }
         public boolean patch_isCaptionVisible() { return shown; }
-        public int patch_getCaptionId() { return 0; }
+        public int patch_getCaptionId() { return id; }
         public CharSequence patch_getOriginalCaptionVisible() { return visible; }
         public CharSequence patch_getOriginalCaptionFull() { return full; }
         public StableCaptionBlocks.Frame patch_getBlockFrame() { return null; }
@@ -34,6 +36,36 @@ public class NativeCaptionSourceTest {
     private StableCaptionBlockPolicy read(StableCaptionBlocks.Timeline timeline) {
         return StableCaptionBlockPolicy.fromNative(timeline, () -> true);
     }
+
+    @Test public void nativeTranslationPlanKeepsWindowIdentityAndIndependentEnds() {
+        var t=timeline(List.of(0L,1000L,2000L),time->time<1000
+                ? List.of(new Cue(7,"same","same"),new Cue(8,"same","same"))
+                : List.of(new Cue(8,"same","same")));
+        var blocks=read(t).sourceBlocks("en");
+        assertEquals(2,blocks.size());
+        assertEquals(java.util.Map.of(7,"same",8,"same"),blocks.get(0).windows);
+        assertEquals(java.util.Map.of(8,"same"),blocks.get(1).windows);
+        assertEquals(1000,blocks.get(0).end);assertEquals(1000,blocks.get(1).start);
+        assertThrows(UnsupportedOperationException.class,()->blocks.get(0).windows.put(9,"changed"));
+    }
+
+    @Test public void perWindowSourceRetainsAuthoredWhitespaceAndWholeNativeText() {
+        var t=timeline(List.of(0L,500L,2000L),time->List.of(
+                new Cue(7,time<500?"First":"First\n  second","First\n  second"),
+                new Cue(8,"Other","Other")));
+        var blocks=read(t).sourceBlocks("en");
+        assertEquals(1,blocks.size());
+        assertEquals("First\n  second",blocks.get(0).windows.get(7));
+        assertEquals("Other",blocks.get(0).windows.get(8));
+    }
+    @Test public void nativeWindowBudgetCountsRawTextAndDistinctIdentities() {
+        String padded = "x" + " ".repeat(2048);
+        assertNull(read(timeline(List.of(0L, 1000L), time -> List.of(
+                new Cue(7, "x", padded), new Cue(8, "x", padded)))));
+        assertNotNull(read(timeline(List.of(0L, 1000L), time -> List.of(
+                new Cue(7, "x", padded), new Cue(7, "x", padded)))));
+    }
+
     @Test public void translatesWholeNativePhraseInsteadOfWordRevealFragments() {
         var t=timeline(List.of(0L,100L,500L,2000L),time->List.of(new Cue(time<500?"Hello":"Hello world", "Hello world")));
         var p=read(t);assertNotNull(p);
@@ -48,7 +80,7 @@ public class NativeCaptionSourceTest {
     }
     @Test public void keepsConcurrentWindowsAndUnicodeWithoutRemovingJoiners() {
         String arabic="می\u200cروم";String emoji="👩\u200d💻";
-        var t=timeline(List.of(10L,1500L),time->List.of(new Cue("","\u200b"+arabic+" "+emoji+"\u200b"),new Cue("","日本語")));
+        var t=timeline(List.of(10L,1500L),time->List.of(new Cue("","\u200b"+arabic+" "+emoji+"\u200b"),new Cue(1,"","日本語")));
         var p=read(t);assertNotNull(p);
         assertEquals(arabic+" "+emoji+" 日本語",p.sourceBlocks("fa").get(0).text);
     }

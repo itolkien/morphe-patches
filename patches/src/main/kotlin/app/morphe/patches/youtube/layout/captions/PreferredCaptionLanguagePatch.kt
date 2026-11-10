@@ -21,6 +21,7 @@ import app.morphe.patches.youtube.shared.hookVideoStarted
 import app.morphe.patches.youtube.shared.startVideoInformerPatch
 import app.morphe.patches.youtube.video.information.onCreateHook
 import app.morphe.patches.youtube.video.information.videoInformationPatch
+import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.reference.Reference
@@ -279,6 +280,17 @@ internal val preferredCaptionLanguagePatch = patch(
                     return-void
                 """
             )
+
+            val menuSelection = CaptionsMenuSelectionFingerprint(
+                trackType,
+                selector.parameterTypes[1].toString(),
+                selector
+            ).method
+            menuSelection.addInstructions(
+                0,
+                "invoke-static { }, $EXTENSION_CLASS->onCaptionUserSelected()V"
+            )
+
         }
 
         SetSubtitleTrackFingerprint.method.addInstructions(
@@ -290,6 +302,13 @@ internal val preferredCaptionLanguagePatch = patch(
             """
         )
 
+        // Observe the shared visibility setter to record an explicit CC selection.
+        // Per-format restoration is handled by AutoCaptionsPatch.
+        val visibilitySetter = SubtitleManagerVisibilityFingerprint(trackType).method
+        visibilitySetter.addInstructions(
+            0,
+            "invoke-static { p2 }, $EXTENSION_CLASS->onCaptionVisibilityChanged(Z)V"
+        )
         onCreateHook(EXTENSION_CLASS, "newVideoStarted")
 
         hookVideoStarted("$EXTENSION_CLASS->videoInformationLoaded()V")

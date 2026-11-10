@@ -26,12 +26,32 @@ public class AutoCaptionsPatch {
         WITHOUT_VOLUME_ONLY
     }
 
+    private static final CaptionVisibilityPolicy visibility = new CaptionVisibilityPolicy(
+            Settings.CAPTION_VISIBILITY_REGULAR.get(), Settings.CAPTION_VISIBILITY_SHORTS.get());
+
+    /** Called only for a user selection, after the initial/programmatic selection guard. */
+    static void rememberVisibility(boolean enabled) {
+        boolean shorts = VideoInformation.isCurrentPlayerShorts();
+        visibility.remember(shorts, enabled);
+        (shorts ? Settings.CAPTION_VISIBILITY_SHORTS : Settings.CAPTION_VISIBILITY_REGULAR)
+                .save(enabled ? 1 : 0);
+    }
+
+    static Boolean rememberedVisibility() {
+        return visibility.remembered(VideoInformation.isCurrentPlayerShorts());
+    }
+
     private static final AtomicLong captionGuardUntil = new AtomicLong(Long.MAX_VALUE);
 
     /**
      * Injection point.
      */
     public static boolean disableAutoCaptions(boolean original) {
+        Boolean remembered = rememberedVisibility();
+        if (remembered != null) {
+            // The per-format profile is authoritative, including after the initial load window.
+            return !remembered;
+        }
         AutoCaptionsStyle style = Settings.AUTO_CAPTIONS_STYLE.get();
 
         // 'Always show' overrides a manual caption-off, including after the guard window.
@@ -57,6 +77,8 @@ public class AutoCaptionsPatch {
      * in order to prevent auto-captioning with volume enabled
      */
     public static boolean disableMuteAutoCaptions(boolean original) {
+        Boolean remembered = rememberedVisibility();
+        if (remembered != null) return remembered;
         AutoCaptionsStyle style = Settings.AUTO_CAPTIONS_STYLE.get();
 
         return style == AutoCaptionsStyle.BOTH_ENABLED || style == AutoCaptionsStyle.WITHOUT_VOLUME_ONLY;

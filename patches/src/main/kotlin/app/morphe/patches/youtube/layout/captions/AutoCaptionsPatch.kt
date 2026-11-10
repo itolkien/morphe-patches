@@ -40,7 +40,6 @@ internal val autoCaptionsPatch = patch(
         settingsMenuCaptionGroup.add(
             ListPreference("morphe_auto_captions_style")
         )
-
         SubtitleManagerFingerprint.let {
             it.method.apply {
                 val index = it.instructionMatches.last().index

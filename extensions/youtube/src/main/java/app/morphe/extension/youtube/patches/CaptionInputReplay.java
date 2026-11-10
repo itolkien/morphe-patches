@@ -9,6 +9,7 @@ package app.morphe.extension.youtube.patches;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.SequenceInputStream;
@@ -38,17 +39,35 @@ final class CaptionInputReplay {
             int n = input.read(buffer, 0, Math.min(buffer.length, limit + 1 - output.size()));
             if (n < 0) {
                 byte[] bytes = output.toByteArray();
-                // Closing the replay also closes the original parser-owned stream.
-                return new Copy(
-                        new SequenceInputStream(new ByteArrayInputStream(bytes), input),
-                        bytes,
-                        true);
+                return new Copy(replay(bytes, input), bytes, true);
             }
             if (n == 0) continue;
             output.write(buffer, 0, n);
         }
         byte[] bytes = output.toByteArray();
-        return new Copy(
-                new SequenceInputStream(new ByteArrayInputStream(bytes), input), bytes, false);
+        return new Copy(replay(bytes, input), bytes, false);
+    }
+
+    private static InputStream replay(byte[] bytes, InputStream input) {
+        // SequenceInputStream closes each component at EOF. The parser owns the source
+        // lifetime, so defer its close until the replay itself is explicitly closed.
+        InputStream remainder = new FilterInputStream(input) {
+            @Override
+            public void close() {}
+        };
+        return new SequenceInputStream(new ByteArrayInputStream(bytes), remainder) {
+            private boolean closed;
+
+            @Override
+            public synchronized void close() throws IOException {
+                if (closed) return;
+                closed = true;
+                try {
+                    super.close();
+                } finally {
+                    input.close();
+                }
+            }
+        };
     }
 }

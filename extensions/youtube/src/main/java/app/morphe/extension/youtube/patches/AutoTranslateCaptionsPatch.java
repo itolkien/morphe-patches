@@ -301,7 +301,7 @@ public final class AutoTranslateCaptionsPatch {
                 int split = part.indexOf('=');
                 String rawKey = split < 0 ? part : part.substring(0, split);
                 String key = URLDecoder.decode(rawKey, "UTF-8");
-                if (!List.of("v", "lang", "kind", "name", "tlang").contains(key)) continue;
+                if (!List.of("v", "lang", "kind", "name", "tlang", "audio_track_id").contains(key)) continue;
                 if (!key.equals(rawKey) || fields.containsKey(key)) return null;
                 fields.put(key, URLDecoder.decode(split < 0 ? "" : part.substring(split + 1), "UTF-8"));
             }
@@ -315,11 +315,21 @@ public final class AutoTranslateCaptionsPatch {
     /** Native target-specific source identity, ignoring only the target value itself. */
     private static String translationSourceIdentity(CaptionTrackInterface track) {
         if (track == null) return null;
-        String code = track.patch_getLanguageCode();
-        String vss = track.patch_getVssId();
-        if (code == null || !LANGUAGE_CODE_PATTERN.matcher(code).matches()
-                || vss == null || !vss.startsWith("t") || !vss.endsWith("." + code)) return null;
-        String url = track.patch_getUrl();
+        String code = track.patch_getLanguageCode(), vss = track.patch_getVssId();
+        if (!translationTargetMatches(code, vss)) return null;
+        return translationSourceIdentity(code, vss, track.patch_getUrl());
+    }
+
+    /** A positive source identity is required before preserving translated uploaded styles. */
+    static boolean isUploadedTranslation(String code, String vss, String url) {
+        Map<String, String> fields = captionParameters(url);
+        return vss != null && vss.startsWith("t.") && fields != null
+                && (!fields.containsKey("kind") || fields.get("kind").isEmpty())
+                && translationSourceIdentity(code, vss, url) != null;
+    }
+
+    private static String translationSourceIdentity(String code, String vss, String url) {
+        if (!translationTargetMatches(code, vss)) return null;
         Map<String, String> fields = captionParameters(url);
         if (fields == null || !code.equals(fields.get("tlang"))) return null;
         String sourceLanguage = fields.get("lang"), video = fields.get("v");
@@ -331,6 +341,11 @@ public final class AutoTranslateCaptionsPatch {
         int target = targetValueOffset(url, code);
         return target < 0 ? null : sourceVss + "|" + url.substring(0, target)
                 + '\0' + url.substring(target + code.length());
+    }
+
+    private static boolean translationTargetMatches(String code, String vss) {
+        return code != null && LANGUAGE_CODE_PATTERN.matcher(code).matches()
+                && vss != null && vss.startsWith("t") && vss.endsWith("." + code);
     }
 
     /** Reject duplicate, encoded or fragment-only target fields before replacing signed URLs. */

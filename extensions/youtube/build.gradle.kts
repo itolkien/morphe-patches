@@ -17,11 +17,13 @@ dependencies {
     compileOnly(project(":extensions:shared:library"))
     compileOnly(project(":extensions:youtube:stub"))
 
+    implementation(project(":vertical-text"))
     implementation(libs.collections4)
     implementation(libs.protobuf.javalite)
 }
 
 configure<ApplicationExtension> {
+    compileSdk = 37
     defaultConfig {
         minSdk = 26
     }
